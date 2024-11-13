@@ -8,6 +8,8 @@ set -e
 
 true "INFO: Currently running script: $BASH_SOURCE $@"
 
+true "test CI"
+
 MYDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 cd "$MYDIR"
