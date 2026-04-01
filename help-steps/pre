@@ -176,6 +176,8 @@ exit code $interactive_chroot_shell_bash_exit_code, cleanup and exit as requeste
 }
 
 exception_handler_retry() {
+   ## Comments for reviewers:
+   ## threat model: command line is considered trusted in derivative-maker.
    if [ ! "$dist_build_dispatch_before_retry" = "" ]; then
       $output_cmd "${cyan}${bold}INFO: dispatch before retry (--retry-before)...: $dist_build_dispatch_before_retry ${reset}"
       dist_build_dispatch_before_retry_exit_code="0"
