@@ -828,6 +828,8 @@ set_default_variable() {
 
   if [ -z "${!var_name:-}" ]; then
     #printf "%s\n" "INFO: Variable '$var_name' is already set? No. - Setting: $var_name='$var_content'"
+    ## Comments for reviewers:
+    ## threat model: command line is considered trusted in derivative-maker.
     eval "$var_name='$var_content'"
     return 0
   fi
@@ -950,6 +952,8 @@ fi
 
 ## {{{ buildconfig.d
 
+## Comments for reviewers:
+## threat model: files on the file system are considered trusted.
 [ -n "$dist_build_config_dirs" ] || dist_build_config_dirs="${source_code_folder_dist}/buildconfig.d /etc/buildconfig-dist.d ../buildconfig.d"
 
 dist_build_source_config_dir() {

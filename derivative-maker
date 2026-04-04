@@ -3,6 +3,9 @@
 ## Copyright (C) 2012 - 2025 ENCRYPTED SUPPORT LLC <adrelanos@whonix.org>
 ## See the file COPYING for copying conditions.
 
+## Comments for reviewers:
+## Verbose logs (set -x) are preferred for build debugging.
+## Secret leak prevention in CI must be handled at the CI/environment level, not by disabling trace output.
 set -x
 set -e
 
