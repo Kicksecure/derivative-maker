@@ -126,8 +126,11 @@ build_machine_setup() {
       packages_to_be_installed+=" grub2-common "
       packages_to_be_installed+=" efibootmgr "
 
-      ## The following grub packages are (partially) build dependencies by Debian live-build.
-      ## Certainly required for amd64 ISO images booted with shim and grub.
+      ## The following grub packages are needed to build bootable ISO images.
+      ## The ISO's signed EFI loaders + grub modules come from the TARGET rootfs
+      ## (help-steps/dm-raw-to-iso), correct-arch even on a cross-build; these
+      ## host-arch packages are build tooling (grub-mkimage etc.), not the ISO's
+      ## loaders. Certainly required for amd64 ISO images booted with shim and grub.
       if [ "${host_architecture}" = "amd64" ]; then
          ## These packages are all available for the amd64 platform.
          ## "grub-mkrescue will automatically include every platform it finds." [1]
@@ -139,6 +142,9 @@ build_machine_setup() {
          packages_to_be_installed+=" grub-efi-amd64-signed "
          packages_to_be_installed+=" shim-unsigned shim-signed shim-signed-common "
          packages_to_be_installed+=" shim-helpers-amd64-signed "
+         ## memtest86+ (x86 only) supplies the diagnostic image the ISO GRUB menu
+         ## boots (build-steps.d/4310 stages it into /live).
+         packages_to_be_installed+=" memtest86+ "
       elif [ "${host_architecture}" = "ppc64el" ]; then
          packages_to_be_installed+=" grub-ieee1275-bin  "
       elif [ "${host_architecture}" = "ppc64" ]; then
@@ -147,6 +153,9 @@ build_machine_setup() {
          packages_to_be_installed+=" grub-ieee1275-bin  "
       elif [ "${host_architecture}" = "arm64" ]; then
          packages_to_be_installed+=" grub-efi-arm64-bin "
+         ## Signed aa64 GRUB is the mandatory platform on arm64 (dm-raw-to-iso
+         ## hard-errors without /usr/lib/grub/arm64-efi-signed/gcdaa64.efi.signed).
+         packages_to_be_installed+=" grub-efi-arm64-signed "
          packages_to_be_installed+=" shim-unsigned shim-signed shim-signed-common "
       elif [ "${host_architecture}" = "riscv64" ]; then
          packages_to_be_installed+=" grub-efi-riscv64-bin  "
@@ -438,6 +447,22 @@ sudo_setup() {
       error "Environment variable USER cannot be empty! Function sudo_setup failed!"
       return 0
    fi
+
+   ## $USER is interpolated verbatim into a sudoers rule below. A value that is not a
+   ## plain username -- the sudoers reserved word 'ALL', or a metacharacter (space,
+   ## '%', '=', ',', ':') -- would grant far more than intended: 'ALL ALL=(ALL:ALL)
+   ## NOPASSWD:ALL' is valid sudoers (passes visudo --check) and means EVERY user.
+   ## Refuse anything that is not a bare [A-Za-z0-9_-] username, and 'ALL' itself.
+   case "${USER}" in
+      *[!A-Za-z0-9_-]*)
+         error "USER '${USER}' is not a plain username ([A-Za-z0-9_-]); refusing to write a sudoers rule."
+         return 0
+         ;;
+      ALL)
+         error "USER must not be the sudoers reserved word 'ALL'; refusing to write a sudoers rule."
+         return 0
+         ;;
+   esac
 
    ## Fix 'sudo' error:
    ## > sudo: you are not permitted to use the -D option

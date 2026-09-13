@@ -11,7 +11,7 @@ terminal-font: "Unifont Regular 16"
         left = 0
         width = 100%
         height = 20
-        text = "@KEYMAP_SHORT@"
+        text = ""
         align = "center"
         color = "#ffffff"
 	font = "Unifont Regular 16"
@@ -47,5 +47,5 @@ terminal-font: "Unifont Regular 16"
         fg_color = "#ffffff"
         bg_color = "#a8a8a8"
         border_color = "#ffffff"
-        text = "@TIMEOUT_NOTIFICATION_LONG@"
+        text = "Booting the highlighted entry automatically in %d s."
 }

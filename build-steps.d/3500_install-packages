@@ -15,6 +15,7 @@ set -o pipefail
 set -o errtrace
 shopt -s inherit_errexit
 shopt -s shift_verbose
+export LC_ALL=C
 
 true "INFO: Currently running script: ${BASH_SOURCE[0]} $*"
 
@@ -224,6 +225,17 @@ install-packages() {
 
    ${SUDO_TO_ROOT} install --mode=0755 -- "${source_code_folder_dist}/packages/kicksecure/helper-scripts/usr/bin/apt-get-noninteractive" "${CHROOT_FOLDER}/usr/bin/apt-get-noninteractive"
 
+   ## apt-get-noninteractive is staged as a bootstrap wrapper BEFORE the
+   ## helper-scripts package is installed, but it 'source's helper-scripts
+   ## libraries at runtime (strings.bsh -> wc-test.sh -> check_runtime.bsh).
+   ## Stage that transitive source-closure alongside it, or the wrapper aborts
+   ## with "strings.bsh: No such file or directory" at the first apt-get run.
+   ## dm-apt-get-wrapper-closure-test (dist-ai) guards this list against drift.
+   ${SUDO_TO_ROOT} mkdir --parents -- "${CHROOT_FOLDER}/usr/libexec/helper-scripts"
+   for dist_apt_wrapper_lib in strings.bsh wc-test.sh check_runtime.bsh; do
+      ${SUDO_TO_ROOT} install --mode=0755 -- "${source_code_folder_dist}/packages/kicksecure/helper-scripts/usr/libexec/helper-scripts/${dist_apt_wrapper_lib}" "${CHROOT_FOLDER}/usr/libexec/helper-scripts/${dist_apt_wrapper_lib}"
+   done
+
    "${dist_source_help_steps_folder}/prevent-daemons-from-starting" "$@"
 
    sync
@@ -276,17 +288,14 @@ install-packages() {
    fi
 
    if [ "${dist_build_iso:-}" = "true" ]; then
-      ## Mark this as a live-build BEFORE any package is installed, so
+      ## Mark this as a live image build BEFORE any package is installed, so
       ## package postinsts take the live path rather than the VM/disk path.
       ##
       ## FIXME: The ISO live build path and the VM/disk path should be
-      ## identical. The only reason they historically weren't is because
-      ## live-build didn't allow the build scripts to inherit the caller's
-      ## environment, and that issue no longer exists here. Therefore, these
-      ## files should not be created, and code paths in package postinsts that
-      ## reference flag files should be removed or converted to environment
-      ## variable checks. (If any conversion is needed, the appropriate
-      ## environment variables should be exported here.)
+      ## identical, so these marker files should not be needed. Convert the
+      ## package-postinst flag-file checks to environment variables and drop
+      ## them. (If any conversion is needed, the appropriate environment
+      ## variables should be exported here.)
       ${SUDO_TO_ROOT} -- mkdir --parents -- "${CHROOT_FOLDER}/var/lib/dist-base-files"
       ${SUDO_TO_ROOT} -- touch -- "${CHROOT_FOLDER}/var/lib/dist-base-files/live_build"
       ${SUDO_TO_ROOT} -- mkdir --parents -- "${CHROOT_FOLDER}/var/lib/security-misc"
@@ -543,7 +552,7 @@ ${dist_build_script_skip_package_install}${reset}"
    ## Generate GRUB keyboard layouts.
    ## 'set-grub-keymap' is provided by package 'helper-scripts'.
    ## Use '--no-live-changes' because GRUB is handled by 'build-steps.d/*_install-packages'.
-   ## NOTE: 'build-steps.d/*_create-lb-iso' also uses 'set-grub-keymap'. Should use the same/similar options.
+   ## NOTE: 'build-steps.d/4310_convert-raw-to-iso' also uses 'set-grub-keymap'. Should use the same/similar options.
    chroot_run set-grub-keymap --build-all --no-live-changes
 
    if printf "%s\n" "${BUILD_INITRAMFS_PKGS}" | grep dracut >/dev/null 2>&1 ; then
@@ -629,7 +638,7 @@ ${dist_build_script_skip_package_install}${reset}"
    chroot_run cat -- /boot/grub/grub.cfg | grep --color "root=" || true
 
    ## Sanity test.
-   if chroot_run cat -- /boot/grub/grub.cfg | grep --quiet "root=/dev/mapper" ; then
+   if chroot_run grep --quiet "root=/dev/mapper" /boot/grub/grub.cfg ; then
       ## Attempt to fix /dev/mapper issue.
       if [ "${grub_probe_main_device_output}" = "${grub_probe_boot_device_output}" ]; then
         grub_probe_target_device="${grub_probe_main_device_output}"

@@ -71,13 +71,18 @@ reimage_raw() {
    fs_blocksize="$(printf '%s\n' "${dumpe2fs_out}" | sed -n 's/^Block size:[[:space:]]*//p')"
    fs_inodes="$(printf '%s\n' "${dumpe2fs_out}" | sed -n 's/^Inode count:[[:space:]]*//p')"
    fs_isize="$(printf '%s\n' "${dumpe2fs_out}" | sed -n 's/^Inode size:[[:space:]]*//p')"
-   ## FIXME: The features enabled in ext4 by default depend on the contents of
-   ## the host's /etc/mke2fs.conf and may also vary depending on host OS. We
-   ## should hardcode the features we want our images build with somewhere in
-   ## derivative-maker's configuration, and update that list as part of every
-   ## update to the next major Debian release. Then we should use that list
-   ## here instead of depending on what is recorded in the original filesystem.
+   ## The rebuild reproduces the ORIGINAL image's exact feature set: extracted
+   ## here and applied with a 'none,' prefix at mke2fs below, so the rebuild
+   ## host's /etc/mke2fs.conf defaults cannot leak in.
+   ## REMINDER: the original's feature set still depends on the host that built
+   ## it (grml-debootstrap + that host's mke2fs.conf); making the ORIGINAL build
+   ## host-independent (a hardcoded per-Debian-release feature list) is a
+   ## separate, broader task than this reproducible-reimage step.
    fs_features="$(printf '%s\n' "${dumpe2fs_out}" | sed -n 's/^Filesystem features:[[:space:]]*//p' | tr ' ' ',')"
+   if [ -z "${fs_features}" ]; then
+      printf '%s\n' "ERROR: ${BASH_SOURCE[0]}: could not read 'Filesystem features' of ${dev_mapper_device}." >&2
+      exit 1
+   fi
    if [ -z "${fs_uuid}" ]; then
       printf '%s\n' "ERROR: ${BASH_SOURCE[0]}: could not read 'Filesystem UUID' of ${dev_mapper_device}." >&2
       return 1
@@ -187,12 +192,12 @@ reimage_raw() {
    ## some kernels, that would result in a filesystem that can't be opened on
    ## most systems.
    ##
-   ## TODO: "${fs_features}" probably needs prefixed by `none,`, otherwise the
-   ## provided feature list will be overlayed on top of the defaults, allowing
-   ## non-determinism to be introduced.
+   ## 'none,' clears the mke2fs.conf-derived defaults first, so the feature set is
+   ## EXACTLY the original's (extracted above) regardless of the rebuild host's
+   ## /etc/mke2fs.conf; without it the host defaults overlay and break reproducibility.
    # shellcheck disable=SC2086
    ${SUDO_TO_ROOT} mke2fs -F -q -t ext4 \
-      -b "${fs_blocksize}" -N "${fs_inodes}" -I "${fs_isize}" -O "${fs_features}" \
+      -b "${fs_blocksize}" -N "${fs_inodes}" -I "${fs_isize}" -O "none,${fs_features}" \
       -U "${fs_uuid}" -E hash_seed="${fs_hashseed}" \
       -d "${reimage_tree}" "${dev_mapper_device}"
 

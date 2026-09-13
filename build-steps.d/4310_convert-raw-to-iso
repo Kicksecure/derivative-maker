@@ -1,0 +1,290 @@
+#!/bin/bash
+
+## Copyright (C) 2026 - 2026 ENCRYPTED SUPPORT LLC <adrelanos@whonix.org>
+## See the file COPYING for copying conditions.
+
+## Convert the raw disk image from 3200_create-raw-image into a bootable hybrid
+## ISO via 'help-steps/dm-raw-to-iso' (BIOS + UEFI + Secure Boot + loopback,
+## dracut-live).
+##
+## The rich, derivative-maker-specific GRUB menu and theme are supplied to the
+## generic tool as a GRUB overlay (see 'iso-build-data/grub-config'): the three
+## live boot roles (USER / SYSMAINT / UNRESTRICTED, consumed at runtime by
+## user-sysmaint-split and live-config-dist), the Utilities submenu (memtest,
+## UEFI firmware setup, medium verification) and the keyboard-layout submenu. The
+## memtest binary and the package manifest are supplied as a /live overlay.
+##
+## Loop devices, kpartx and chroot require root and a permissive environment;
+## this runs in the build container, not a trusted host.
+
+set -x
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o errtrace
+shopt -s inherit_errexit
+shopt -s shift_verbose
+export LC_ALL=C
+
+true "INFO: Currently running script: ${BASH_SOURCE[0]} $*"
+
+MYDIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
+
+cd -- "${MYDIR}"
+cd ..
+cd help-steps
+
+source pre
+source variables
+
+## Harvest from inside the rootfs the two things that can only come from there:
+## the freshly generated GRUB keyboard-layout data + submenu, and the installed
+## package manifest. Also strip the ISO build markers so they do not ship in the
+## live image. Uses the standard chroot lifecycle (mount-raw / chroot-raw /
+## unchroot-raw / unmount-raw), guarded by exception_handler_unchroot_unmount so a
+## failure tears the chroot down.
+prepare_raw() {
+   exception_handler_setup "exception_handler_unchroot_unmount" ERR INT TERM
+
+   "${dist_source_help_steps_folder}/mount-raw" "${args[@]}"
+   "${dist_source_help_steps_folder}/prevent-daemons-from-starting" "${args[@]}"
+   "${dist_source_help_steps_folder}/chroot-raw" "${args[@]}"
+
+   ## The live_build / skip_install_check markers steer live-path postinsts during
+   ## package install; strip them so they do not ship in the live rootfs.
+   ${SUDO_TO_ROOT} safe-rm --force -- "${CHROOT_FOLDER}/var/lib/dist-base-files/live_build"
+   ${SUDO_TO_ROOT} safe-rm --force -- "${CHROOT_FOLDER}/var/lib/security-misc/skip_install_check"
+
+   ## Installed-package manifest, shipped on the ISO at /live/filesystem.packages.
+   ${SUDO_TO_ROOT} dpkg-query --admindir="${CHROOT_FOLDER}/var/lib/dpkg" --show \
+      > "${live_overlay}/filesystem.packages"
+
+   ## Capture the "Keyboard layout options" submenu (44_kb_layout, usability-misc)
+   ## for the ISO overlay grub.cfg. The layouts it references are already built in
+   ## the rootfs by 3500's 'set-grub-keymap --build-all'; the disk path renders this
+   ## submenu through grub-mkconfig instead.
+   kb_layout_submenu="$(chroot_run /etc/grub.d/44_kb_layout)" || kb_layout_submenu=""
+
+   ## Carry the rootfs kernel-command-line hardening (mitigations, slab_nomerge,
+   ## rd.shell=0, rd.emergency=halt, debugfs=off, ...) that security-misc sets via
+   ## /etc/default/grub.d into the live boot roles. grub-mkconfig emits it on the
+   ## disk 'linux' line; the disk image inherits it through grub-mkconfig, but the
+   ## live path has none, so without this scrape the ISO boots UNHARDENED and, with
+   ## rd.shell=0/rd.emergency=halt dropped, falls to a dracut rescue shell instead
+   ## of halting.
+   ## capture grub-mkconfig once ('|| true' guards a real grub-mkconfig failure)
+   grub_cfg_output="$(chroot_run grub-mkconfig 2>/dev/null)" || true
+   ## keep the 'linux' menuentry lines ('|| true': grep exits 1 when none match)
+   linux_lines="$(printf '%s\n' "${grub_cfg_output}" | grep -E '^[[:space:]]*linux[[:space:]]')" || true
+   ## take the first (the main entry); '|| true': head closing the pipe SIGPIPEs
+   ## printf under pipefail, which must not blank the already-captured first line
+   rootfs_linux_line="$(printf '%s\n' "${linux_lines}" | head -n1)" || true
+   ## Reduce the 'linux' line to the hardening params by token content, not a
+   ## positional field cut (a field cut silently drops a param -- or leaks 'root='
+   ## and breaks the live boot -- if grub's token layout shifts). One transform +
+   ## one variable per stage (each independently checkable).
+   ## 1. drop the leading indent + 'linux' keyword + kernel-image path
+   cmdline_params="$(printf '%s' "${rootfs_linux_line}" | sed -E 's/^[[:space:]]*linux[[:space:]]+[^[:space:]]+[[:space:]]+//')"
+   ## 2. drop the disk-boot 'root=' (the live entry sets its own root=live:CDLABEL=)
+   cmdline_no_root="$(printf '%s' "${cmdline_params}" | sed -E 's/(^|[[:space:]])root=[^[:space:]]*/ /g')"
+   ## 3. drop a standalone 'ro'
+   rootfs_kernel_hardening="$(printf '%s' "${cmdline_no_root}" | sed -E 's/(^|[[:space:]])ro([[:space:]]|$)/ /g')"
+   ## SMBIOS injection is applied separately (convert_raw_to_iso), so drop the token
+   ## here to avoid carrying it twice; then collapse the space runs the strip and
+   ## grub-mkconfig indentation leave and trim the ends. Single quotes: the pattern
+   ## must be the LITERAL '${dm_smbios_extra}', not an expansion.
+   # shellcheck disable=SC2016
+   rootfs_kernel_hardening="${rootfs_kernel_hardening//'${dm_smbios_extra}'/}"
+   rootfs_kernel_hardening="$(printf '%s' "${rootfs_kernel_hardening}" | tr -s ' ')"
+   rootfs_kernel_hardening="${rootfs_kernel_hardening#"${rootfs_kernel_hardening%%[![:space:]]*}"}"
+   rootfs_kernel_hardening="${rootfs_kernel_hardening%"${rootfs_kernel_hardening##*[![:space:]]}"}"
+
+   if ${SUDO_TO_ROOT} test -d "${CHROOT_FOLDER}/boot/grub/kb_layouts"; then
+      ${SUDO_TO_ROOT} cp --recursive -- "${CHROOT_FOLDER}/boot/grub/kb_layouts/." "${grub_overlay}/kb_layouts/"
+      ## Pin explicit, umask-independent modes: 'cp' without '-p' creates each file
+      ## as source-mode & ~umask, so the layouts shipped in the ISO would otherwise
+      ## depend on the builder's umask and defeat a byte-identical rebuild.
+      ${SUDO_TO_ROOT} chmod --recursive u=rwX,go=rX -- "${grub_overlay}/kb_layouts"
+      ## The workdir is owned by the build user; chown the root-copied layouts
+      ## back so the final workdir removal (as the build user) can remove them.
+      ${SUDO_TO_ROOT} chown --recursive -- "${user_name}:${user_name}" "${grub_overlay}/kb_layouts"
+   fi
+
+   "${dist_source_help_steps_folder}/unchroot-raw" "${args[@]}"
+   "${dist_source_help_steps_folder}/unprevent-daemons-from-starting" "${args[@]}"
+   "${dist_source_help_steps_folder}/unmount-raw" "${args[@]}"
+
+   ## The chroot + raw mount are fully torn down now, so drop the
+   ## unchroot_unmount cleanup: a later failure (overlay assembly, the tool run)
+   ## must not re-run unchroot-raw/unmount-raw against an already-clean state,
+   ## which errors on its own and masks the real cause.
+   exception_handler_setup "exception_handler_general" ERR INT TERM
+}
+
+## Assemble the GRUB overlay (menu + theme + fonts + kb_layouts) that
+## dm-raw-to-iso stages into the ISO's /boot/grub.
+build_grub_overlay() {
+   local iso_grub_config_dir grub_timeout splash_svg
+   iso_grub_config_dir="${source_code_folder_dist}/iso-build-data/grub-config"
+
+   ## config.cfg: theme setup. Keep the historic 30s menu timeout; the SMBIOS
+   ## reader forces timeout=0 itself when (and only when) a cmdline is injected.
+   grub_timeout="30"
+   sed "s/@TIMEOUT@/${grub_timeout}/" -- "${iso_grub_config_dir}/config.cfg" \
+      > "${grub_overlay}/config.cfg"
+
+   ## '--serial-console-enable true': route the GRUB menu to the serial line too
+   ## (in addition to the display), appended after config.cfg's 'terminal_output
+   ## gfxterm' so '--append serial' keeps both terminals.
+   if [ "${dist_build_serial_console_enable:-}" = "true" ]; then
+      printf '%s\n' \
+         '' \
+         'serial --unit=0 --speed=115200 --word=8 --parity=no --stop=1' \
+         'terminal_input --append serial' \
+         'terminal_output --append serial' \
+         >> "${grub_overlay}/config.cfg"
+   fi
+
+   ## '--smbios-reader true' (default false, so a released ISO carries no reader):
+   ## inline the SMBIOS cmdline reader into config.cfg, which grub.cfg sources
+   ## first, so ${dm_smbios_extra} is set before any menuentry boots.
+   if [ "${dist_build_smbios_reader:-}" = "true" ]; then
+      printf '%s\n' '' >> "${grub_overlay}/config.cfg"
+      cat -- "${iso_grub_config_dir}/smbios-reader.cfg" >> "${grub_overlay}/config.cfg"
+   fi
+
+   ## grub.cfg: the menu template (the APPEND-LIVE token is substituted by the
+   ## tool with the base live kernel command line).
+   cp -- "${iso_grub_config_dir}/grub.cfg" "${grub_overlay}/grub.cfg"
+
+   ## Append the keyboard-layout submenu harvested from the rootfs, and source
+   ## the theme inside it so it matches the rest of the menu.
+   if [ -n "${kb_layout_submenu}" ]; then
+      printf '%s\n' "${kb_layout_submenu}" >> "${grub_overlay}/grub.cfg"
+      sed -i "s/\(submenu 'Keyboard layout options'.*\)/\1\n  source \/boot\/grub\/theme.cfg/" \
+         "${grub_overlay}/grub.cfg"
+   fi
+
+   ## Boot-mechanism configs: dm-raw-to-iso ships no GRUB config, so the overlay
+   ## carries loopback.cfg (staged into /boot/grub for loop-mounted .iso boot) and
+   ## esp-redirect.cfg (the tool packs it into the ESP's grub.cfg).
+   cp -- "${iso_grub_config_dir}/loopback.cfg" "${grub_overlay}/loopback.cfg"
+   cp -- "${iso_grub_config_dir}/esp-redirect.cfg" "${grub_overlay}/esp-redirect.cfg"
+
+   ## Theme assets.
+   cp -- "${iso_grub_config_dir}/theme.cfg" "${grub_overlay}/theme.cfg"
+   cp -- "${iso_grub_config_dir}/live-theme/theme.txt" "${grub_overlay}/live-theme/theme.txt"
+
+   ## splash.png: substitute the branding placeholders in the SVG, then rasterize
+   ## to the 800x600 PNG the theme (live-theme/theme.txt) references.
+   splash_svg="${iso_workdir}/splash.svg"
+   sed "s|@DIST_NAME@|${dist_build_type_short_pretty}|g; s|@DIST_VERSION@|${dist_build_version}|g" \
+      -- "${iso_grub_config_dir}/splash.svg" > "${splash_svg}"
+   rsvg-convert --format png --width 800 --height 600 \
+      --output "${grub_overlay}/splash.png" -- "${splash_svg}"
+}
+
+## Assemble the /live overlay: the memtest binary (x86 only) plus the manifest
+## generated in prepare_raw.
+build_live_overlay() {
+   local mt_bin mt_efi
+   case "${dist_build_target_arch}" in
+      amd64)
+         mt_bin="/boot/memtest86+x64.bin"
+         mt_efi="/boot/memtest86+x64.efi"
+         ;;
+      i386)
+         mt_bin="/boot/memtest86+ia32.bin"
+         mt_efi="/boot/memtest86+ia32.efi"
+         ;;
+      *)
+         ## No memtest86+ on non-x86; the menu entry self-hides on the absent file.
+         return 0
+         ;;
+   esac
+
+   ## memtest is an OPTIONAL diagnostic: the GRUB menu entry self-hides when
+   ## /live/memtest.bin is absent, so a missing binary (e.g. a cross-arch or
+   ## minimal build host without memtest86+) warns and skips rather than failing
+   ## the whole ISO. A native amd64 build installs it via 1200.
+   if [ -e "${mt_bin}" ]; then
+      cp -- "${mt_bin}" "${live_overlay}/memtest.bin"
+      ## The EFI image is best-effort (older memtest86+ ships BIOS only).
+      [ ! -e "${mt_efi}" ] || cp -- "${mt_efi}" "${live_overlay}/memtest.efi"
+   else
+      true "${red}${bold}WARNING:${reset} memtest86+ binary not found ('${mt_bin}'); the ISO menu's memtest entry will self-hide. Install 'memtest86+' on the build host to include it."
+   fi
+}
+
+convert_raw_to_iso() {
+   ## Dry-run (reproducibility / ci-tiny lane stops here): write a non-empty
+   ## placeholder ISO so later prepare-release steps do not fail on an empty file.
+   if [ "${build_dry_run:-}" = "true" ]; then
+      true "${bold}${cyan}INFO: Dry-run, writing placeholder ISO and skipping ${BASH_SOURCE[0]}.${reset}"
+      printf '%s\n' "dummy" | sponge -- "${binary_image_iso_file}"
+      return 0
+   fi
+
+   local bootappend
+   iso_workdir="$(mktemp --directory --tmpdir dm-convert-raw-to-iso.XXXXXX)"
+   grub_overlay="${iso_workdir}/grub-overlay"
+   live_overlay="${iso_workdir}/live-overlay"
+   mkdir --parents -- "${grub_overlay}/live-theme" "${grub_overlay}/kb_layouts" "${live_overlay}"
+
+   kb_layout_submenu=""
+   rootfs_kernel_hardening=""
+   prepare_raw
+   build_grub_overlay
+   build_live_overlay
+
+   ## Base live kernel command line extras the tool appends to its computed base
+   ## (root=live:CDLABEL=..., dracut rd.live.*, iso-scan/filename):
+   ##   live-config.hostname     -- live-config sets the hostname from it.
+   ##   serial console=          -- kernel/dracut/systemd log to the serial line.
+   ##   ${dm_smbios_extra}       -- LITERAL, kept for GRUB to expand at boot; the
+   ##                               SMBIOS reader fills it (empty otherwise -> no-op).
+   bootappend="live-config.hostname=${dist_build_hostname}"
+   if [ "${dist_build_serial_console_enable:-}" = "true" ]; then
+      bootappend="${bootappend} console=tty0 console=ttyS0,115200n8"
+   fi
+   ## Carry the rootfs kernel hardening into every live boot role; keep it ahead of
+   ## the SMBIOS token so an injected console= override (below) still wins.
+   if [ -n "${rootfs_kernel_hardening}" ]; then
+      bootappend="${bootappend} ${rootfs_kernel_hardening}"
+   fi
+   if [ "${dist_build_smbios_reader:-}" = "true" ]; then
+      ## Single quotes: '${dm_smbios_extra}' must reach grub.cfg un-expanded.
+      # shellcheck disable=SC2016
+      bootappend="${bootappend} "'${dm_smbios_extra}'
+   fi
+
+   ${SUDO_TO_ROOT} "${dist_source_help_steps_folder}/dm-raw-to-iso" \
+      --raw "${binary_image_raw_file}" \
+      --output "${binary_image_iso_file}" \
+      --arch "${dist_build_target_arch}" \
+      --label "${dist_build_type_short}" \
+      --source-date-epoch "${SOURCE_DATE_EPOCH}" \
+      --bootappend "${bootappend}" \
+      --grub-overlay "${grub_overlay}" \
+      --live-overlay "${live_overlay}"
+
+   ${SUDO_TO_ROOT} chown -- "${user_name}:${user_name}" "${binary_image_iso_file}"
+
+   safe-rm --recursive --force -- "${iso_workdir}"
+}
+
+main() {
+   if [ "${dist_build_install_to_root:-}" = "true" ]; then
+      true "${green}INFO: Skipping ${BASH_SOURCE[0]}, because dist_build_install_to_root is set to true.${reset}"
+      return 0
+   fi
+
+   if [ "${dist_build_iso:-}" != "true" ]; then
+      true "${green}INFO: Skipping ${BASH_SOURCE[0]}, because dist_build_iso is not set to true.${reset}"
+      return 0
+   fi
+
+   convert_raw_to_iso
+}
+
+main "$@"

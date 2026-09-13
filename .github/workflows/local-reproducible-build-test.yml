@@ -1,5 +1,5 @@
 ---
-name: Build
+name: Reproducible Build Test
 
 ## Repo-private native reproducibility lane (G-A-005 'local-' prefix): builds
 ## the same image TWICE as two INDEPENDENT jobs (in separate runner VMs), then a
@@ -19,8 +19,6 @@ name: Build
 ## lint-covered and locally runnable. See agents/github-actions-security.md for the
 ## pinning / permissions patterns.
 
-## TODO: This file is now poorly named; rename to reproducible-build-test.yml?
-
 on:
   workflow_dispatch:
     inputs:
@@ -38,7 +36,7 @@ on:
           - iso
           - virtualbox
   ## Dispatch-only, plus release tags below:
-  ##   dm-ci-dispatch --workflow local-build.yml --ref <ref>
+  ##   dm-ci-dispatch --workflow local-reproducible-build-test.yml --ref <ref>
   push:
     tags:
       ## '**' not '*': '*' does not match a slash, so a slash-delimited tag would
@@ -96,9 +94,8 @@ env:
   ## image content -- the same reasoning under which the docker image is already
   ## cached here -- so reusing it cannot change what the two builds are compared on.
   BASE_CACHE: "true"
-  ## Parallel package builds, passed as '--package-jobs N'. 2100 verifies its own
-  ## preconditions (cowbuilder in use, genmkfile 'make_cow_suffix' support) and falls
-  ## back to serial with a reason if either is missing, so this needs no guard here.
+  ## Parallel package builds, passed as '--package-jobs N'. 2100 falls back to
+  ## serial with a reason when cowbuilder is not in use, so this needs no guard here.
   ## 2100 advises capping around nproc-2; ubuntu-24.04 runners have 4 vCPU. Both
   ## copies get the same value, so it cannot skew the a-vs-b comparison -- and
   ## nondeterminism introduced by it is what this lane exists to report.
@@ -172,7 +169,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.approx-cache-sidecar
-          key: ${{ runner.os }}-repro-${{ matrix.copy }}-approx-${{ hashFiles('.github/workflows/local-build.yml', 'docker/derivative-maker-docker-setup', 'help-steps/dm-build-official', 'help-steps/dm-build-official-one') }}
+          key: ${{ runner.os }}-repro-${{ matrix.copy }}-approx-${{ hashFiles('.github/workflows/local-reproducible-build-test.yml', 'docker/derivative-maker-docker-setup', 'help-steps/dm-build-official', 'help-steps/dm-build-official-one') }}
 
       - name: Restore docker image cache
         id: dmimg-cache
