@@ -49,17 +49,20 @@ reimage_raw() {
    export kpartx_only=true
    source "${dist_source_help_steps_folder}"/mount-raw
 
-   ## Arm the cleanup trap BEFORE mount_raw: mount_raw runs kpartx -a early and can fail afterwards,
-   ## so the mapping must be torn down even then.
+   ## Register cleanup BEFORE mount_raw: mount_raw runs kpartx -a early and can
+   ## fail afterwards, so the mapping must be torn down even then.
    ##
-   ## FIXME: This breaks the exithandler mechanism in help-steps/pre. Add a
-   ## mechanism to exithandler that can call cleanup functions that are
-   ## registered with it, then register reimage_cleanup with that mechanism.
-   ## Alternatively, if there is already a global cleanup mechanism, simply
-   ## extend that to be able to handle the cleanup reimage_cleanup does.
+   ## 'exception_handler_unmount' gives the standard unmount-raw teardown on the
+   ## ERR / INT / TERM paths WITHOUT overwriting the EXIT trap help-steps/pre
+   ## owns. The two step-specific removals reimage_cleanup does (the temp
+   ## read-only mount dir and the multi-GB copied tree) are runtime paths the
+   ## fixed cleanup step list cannot express, so register reimage_cleanup as a
+   ## callback; it is idempotent, so it is also safe to run on the normal EXIT
+   ## path.
    reimage_mnt=""
    reimage_tree=""
-   trap 'reimage_cleanup' EXIT
+   exception_handler_setup "exception_handler_unmount" ERR INT TERM
+   exception_handler_register_cleanup reimage_cleanup
 
    mount_raw
 
@@ -231,9 +234,6 @@ reimage_raw() {
    fi
 
    "${dist_source_help_steps_folder}"/unmount-raw "$@"
-   ## FIXME: The below line needs removed once the exithandler breakage issue
-   ## mentioned above is fixed.
-   trap - EXIT
 }
 
 main() {
