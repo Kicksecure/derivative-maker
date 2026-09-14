@@ -638,13 +638,16 @@ ${dist_build_script_skip_package_install}${reset}"
         error '/boot/grub/grub.cfg contains root=/dev/mapper and cannot find proper boot device - image most likely unbootable!'
       fi
       grub_probe_target_device="$(cut -d'/' -f4 <<< "${grub_probe_target_device}")"
-      grub_probe_target_device="$(lsblk -rno NAME,UUID | grep --fixed-strings -- "${grub_probe_target_device}")"
+      ## Anchor the match to the exact device name (name followed by a space in
+      ## 'lsblk -rno NAME,UUID' output); a substring match would let 'loop0p1'
+      ## also match 'loop0p10' and pick the wrong partition's UUID.
+      grub_probe_target_device="$(lsblk -rno NAME,UUID | grep -- "^${grub_probe_target_device} ")"
       grub_probe_target_device="$(cut -d' ' -f2 <<< "${grub_probe_target_device}")"
       grub_probe_target_device="$(head -n1 <<< "${grub_probe_target_device}")"
       if [ -z "${grub_probe_target_device}" ]; then
         error '/boot/grub/grub.cfg contains root=/dev/mapper and cannot find boot device UUID - image most likely unbootable!'
       fi
-      ${SUDO_TO_ROOT} sed -i "s;root=[^ ]\\+;root=UUID=${grub_probe_target_device};" ${CHROOT_FOLDER}/boot/grub/grub.cfg
+      ${SUDO_TO_ROOT} sed -i "s;root=[^ ]\\+;root=UUID=${grub_probe_target_device};" "${CHROOT_FOLDER}/boot/grub/grub.cfg"
    fi
 
    "${dist_source_help_steps_folder}/remove-local-temp-apt-repo" "$@"
