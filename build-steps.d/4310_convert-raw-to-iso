@@ -39,8 +39,7 @@ source variables
 
 ## Harvest from inside the rootfs the two things that can only come from there:
 ## the freshly generated GRUB keyboard-layout data + submenu, and the installed
-## package manifest. Also strip the ISO build markers so they do not ship in the
-## live image. Uses the standard chroot lifecycle (mount-raw / chroot-raw /
+## package manifest. Uses the standard chroot lifecycle (mount-raw / chroot-raw /
 ## unchroot-raw / unmount-raw), guarded by exception_handler_unchroot_unmount so a
 ## failure tears the chroot down.
 prepare_raw() {
@@ -49,11 +48,6 @@ prepare_raw() {
    "${dist_source_help_steps_folder}/mount-raw" "${args[@]}"
    "${dist_source_help_steps_folder}/prevent-daemons-from-starting" "${args[@]}"
    "${dist_source_help_steps_folder}/chroot-raw" "${args[@]}"
-
-   ## The live_build / skip_install_check markers steer live-path postinsts during
-   ## package install; strip them so they do not ship in the live rootfs.
-   ${SUDO_TO_ROOT} safe-rm --force -- "${CHROOT_FOLDER}/var/lib/dist-base-files/live_build"
-   ${SUDO_TO_ROOT} safe-rm --force -- "${CHROOT_FOLDER}/var/lib/security-misc/skip_install_check"
 
    ## Installed-package manifest, shipped on the ISO at /live/filesystem.packages.
    ${SUDO_TO_ROOT} dpkg-query --admindir="${CHROOT_FOLDER}/var/lib/dpkg" --show \

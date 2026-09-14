@@ -287,20 +287,9 @@ install-packages() {
       ${SUDO_TO_ROOT} -- cp --verbose -- "${source_dracut_disable_config_snippet}" "${target_dracut_disable_config_snippet}"
    fi
 
-   if [ "${dist_build_iso:-}" = "true" ]; then
-      ## Mark this as a live image build BEFORE any package is installed, so
-      ## package postinsts take the live path rather than the VM/disk path.
-      ##
-      ## FIXME: The ISO live build path and the VM/disk path should be
-      ## identical, so these marker files should not be needed. Convert the
-      ## package-postinst flag-file checks to environment variables and drop
-      ## them. (If any conversion is needed, the appropriate environment
-      ## variables should be exported here.)
-      ${SUDO_TO_ROOT} -- mkdir --parents -- "${CHROOT_FOLDER}/var/lib/dist-base-files"
-      ${SUDO_TO_ROOT} -- touch -- "${CHROOT_FOLDER}/var/lib/dist-base-files/live_build"
-      ${SUDO_TO_ROOT} -- mkdir --parents -- "${CHROOT_FOLDER}/var/lib/security-misc"
-      ${SUDO_TO_ROOT} -- touch -- "${CHROOT_FOLDER}/var/lib/security-misc/skip_install_check"
-   fi
+   ## The live-image vs VM/disk path is selected in package maintainer scripts
+   ## by the 'dist_build_iso' environment variable, which chroot_run preserves
+   ## into the chroot (env_vars_keep_list). No on-disk marker file is written.
 
    ## Install legacy-dist earlier so debconf questions are answered before
    ## meta package installation.
