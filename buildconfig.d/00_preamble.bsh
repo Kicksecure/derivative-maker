@@ -104,26 +104,26 @@ path_variable_adjustments
 ## 4. 'whoami' / '$USER' - only trusted if we're not currently root,
 ##    because otherwise they would yield 'root' and 'HOMEVAR=/home/root'
 ##    would silently point at a nonexistent home directory.
-set_default_variable user_name "${SUDO_USER:-}"
-set_default_variable user_name "$(logname 2>/dev/null)" || true
+default_if_empty user_name "${SUDO_USER:-}"
+default_if_empty user_name "$(logname 2>/dev/null)" || true
 if [ -z "${user_name:-}" ] && [ "${EUID}" != "0" ]; then
    user_name="$(whoami)" || true
-   set_default_variable user_name "${USER:-}"
+   default_if_empty user_name "${USER:-}"
 fi
 if [ "${user_name:-}" = "" ]; then
    error "Variable user_name is empty."
 fi
 export user_name
 
-set_default_variable SUDO_TO_ROOT "sudo --non-interactive"
-set_default_variable HOMEVAR_VBOX_TEMP "/home/dm-vbox-temp"
+default_if_empty SUDO_TO_ROOT "sudo --non-interactive"
+default_if_empty HOMEVAR_VBOX_TEMP "/home/dm-vbox-temp"
 export HOMEVAR_VBOX_TEMP
 
 ## Use 'sudo' with '-D $HOMEVAR_VBOX_TEMP' ('--chdir') to avoid 'VBoxManage' error.
 #> VBoxManage: error: Could not create the directory '.' (VERR_ACCESS_DENIED)
-set_default_variable SUDO_TO_VBOX_TEMP "sudo --non-interactive -D ${HOMEVAR_VBOX_TEMP} -u dm-vbox-temp"
+default_if_empty SUDO_TO_VBOX_TEMP "sudo --non-interactive -D ${HOMEVAR_VBOX_TEMP} -u dm-vbox-temp"
 
-set_default_variable HOMEVAR "/home/${user_name}"
+default_if_empty HOMEVAR "/home/${user_name}"
 export HOMEVAR
 export dist_build_slot="${dist_build_slot:-}"
 if [ -n "${binary_build_folder_dist:-}" ]; then
@@ -152,14 +152,14 @@ for space_check_var in binary_build_folder_dist source_code_folder_dist ; do
 done
 unset space_check_var
 
-set_default_variable dist_parent_folder "$(dirname -- "${source_code_folder_dist}")"
-set_default_variable dist_developer_meta_files_folder "${source_code_folder_dist}/packages/kicksecure/developer-meta-files"
+default_if_empty dist_parent_folder "$(dirname -- "${source_code_folder_dist}")"
+default_if_empty dist_developer_meta_files_folder "${source_code_folder_dist}/packages/kicksecure/developer-meta-files"
 
-set_default_variable dist_source_parentdir "$(dirname -- "${source_code_folder_dist}")"
+default_if_empty dist_source_parentdir "$(dirname -- "${source_code_folder_dist}")"
 export dist_source_parentdir
 
-set_default_variable dist_source_help_steps_folder "${source_code_folder_dist}/help-steps"
+default_if_empty dist_source_help_steps_folder "${source_code_folder_dist}/help-steps"
 export dist_source_help_steps_folder
 
-set_default_variable str_replace_tool "${HELPER_SCRIPTS_PATH}/usr/bin/str_replace"
-set_default_variable str_replace_many_tool "${HELPER_SCRIPTS_PATH}/usr/bin/str-replace-many"
+default_if_empty str_replace_tool "${HELPER_SCRIPTS_PATH}/usr/bin/str_replace"
+default_if_empty str_replace_many_tool "${HELPER_SCRIPTS_PATH}/usr/bin/str-replace-many"

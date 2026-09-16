@@ -36,20 +36,20 @@ append_upload_source_and_locations_to_lists() {
 }
 
 if [ "${dist_build_virtualbox:-}" = "true" ]; then
-   set_default_variable ssh_uploader_account "root"
+   default_if_empty ssh_uploader_account "root"
 
    append_upload_source_and_locations_to_lists "${binary_image_ova_file}" "/var/rsync/ova"
 fi
 
 if [ "${dist_build_iso:-}" = "true" ]; then
-   set_default_variable ssh_uploader_account "root"
+   default_if_empty ssh_uploader_account "root"
 
    append_upload_source_and_locations_to_lists "${binary_image_iso_file}" "/var/rsync/iso"
 fi
 
 if [ "${dist_build_qcow2:-}" = "true" ]; then
    #[ -n "${ssh_uploader_account:-}" ] || ssh_uploader_account="hulahoop"
-   set_default_variable ssh_uploader_account "root"
+   default_if_empty ssh_uploader_account "root"
 
    append_upload_source_and_locations_to_lists "${libvirt_target_qcow2_xz_archive_file}" "/var/rsync/libvirt"
 fi
@@ -57,13 +57,13 @@ fi
 ## Default this target flag at its source so consumers (notably
 ## dm-upload-images) can read it bare under 'nounset'; parse-cmd sets it
 ## 'true' only for a '--target installer-dist' build.
-set_default_variable dist_build_installer_dist "false"
+default_if_empty dist_build_installer_dist "false"
 export dist_build_installer_dist
 
-set_default_variable dist_build_serial_console_enable "false"
+default_if_empty dist_build_serial_console_enable "false"
 export dist_build_serial_console_enable
 
-set_default_variable dist_build_smbios_reader "false"
+default_if_empty dist_build_smbios_reader "false"
 export dist_build_smbios_reader
 
 ## 4x3/BIOS grub theme is the build DEFAULT (Kicksecure's primary use case is
@@ -72,23 +72,23 @@ export dist_build_smbios_reader
 ## snippets read it inside the chroot when grub-mkconfig runs. Absent on an
 ## installed system, where a later update-grub probes the running firmware.
 ## Must be on env_vars_keep_list below to cross into the chroot.
-set_default_variable dist_build_grub_bios_theme "true"
+default_if_empty dist_build_grub_bios_theme "true"
 export dist_build_grub_bios_theme
 
 if [ "${dist_build_installer_dist}" = "true" ]; then
-   set_default_variable ssh_uploader_account "root"
+   default_if_empty ssh_uploader_account "root"
 
    append_upload_source_and_locations_to_lists "${binary_image_installer_dist_file}" "/var/rsync/dist-installer-cli"
 fi
 
 if [ "${dist_build_windows_installer:-}" = "true" ]; then
-   set_default_variable ssh_uploader_account "root"
+   default_if_empty ssh_uploader_account "root"
 
    append_upload_source_and_locations_to_lists "${binary_image_windows_installer_file}" "/var/rsync/windows"
 fi
 
 if [ "${dist_build_source_archive:-}" = "true" ]; then
-   set_default_variable ssh_uploader_account "root"
+   default_if_empty ssh_uploader_account "root"
 
    append_upload_source_and_locations_to_lists "${source_archive_xz_file}" "/var/rsync/source"
 fi

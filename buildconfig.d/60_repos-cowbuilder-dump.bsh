@@ -16,7 +16,7 @@
 
 ## {{{ apt repository variables
 
-set_default_variable dist_build_apt_codename "local"
+default_if_empty dist_build_apt_codename "local"
 export dist_build_apt_codename
 ## developer local setting in buildconfig.d folder / dist_build_source_config_dir function:
 ## export dist_build_apt_codename="trixie-developers"
@@ -73,10 +73,10 @@ set_dist_build_reprepro_folder_options() {
 
 ## }}}
 
-set_default_variable host_architecture "$(dpkg --print-architecture)"
+default_if_empty host_architecture "$(dpkg --print-architecture)"
 export host_architecture
 
-set_default_variable make_cross_build_platform_list "${dist_build_target_arch}"
+default_if_empty make_cross_build_platform_list "${dist_build_target_arch}"
 #[ -n "${make_cross_build_platform_list:-}" ] || make_cross_build_platform_list="amd64 arm64"
 export make_cross_build_platform_list
 
@@ -104,7 +104,7 @@ set_cowbuilder_folders() {
    base_folder="${cowbuilder_cache_dir}/base.cow_${dist_build_multiarch_package_item}"
 }
 
-set_default_variable dist_build_file_system "ext4"
+default_if_empty dist_build_file_system "ext4"
 
 ## cowbuilder (which internally uses pbuilder).
 dist_build_pbuilder_main_chroot_script="${dist_source_help_steps_folder}/pbuilder-chroot-script-main"

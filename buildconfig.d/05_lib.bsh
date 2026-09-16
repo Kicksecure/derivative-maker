@@ -9,28 +9,11 @@
 ## stay strict-free and can be sourced by a unit test and called directly without
 ## inheriting strict-mode into the test shell. 'return', never 'exit'.
 ##
-## check_variable_name (helper-scripts strings.bsh) must be in scope at call time;
-## the caller sources strings.bsh, as does the unit test.
-
-set_default_variable() {
-  local var_name var_content
-  var_name="$1"
-  var_content="$2"
-
-  ## Checking the variable name before using printf -v or "${!var_name:-}".
-  ## This might not be strictly necessary, but it shields against future bugs.
-  check_variable_name "${var_name}" || return 1
-
-  if [ -z "${!var_name:-}" ]; then
-    #printf "%s\n" "INFO: Variable '$var_name' is already set? No. - Setting: $var_name='$var_content'"
-    ## Use 'printf -v' instead of 'eval' so single quotes or other shell
-    ## metacharacters inside "$var_content" are stored literally and cannot
-    ## be reinterpreted by the shell parser.
-    printf -v "${var_name}" '%s' "${var_content}"
-    return 0
-  fi
-  #printf "%s\n" "INFO: Variable '$var_name' is already set? Yes. - Already: $var_name='${!var_name}'"
-}
+## The fill-if-empty precedence primitive is 'default_if_empty' from helper-scripts
+## strings.bsh (already sourced by help-steps/variables before this file). A config
+## file participates in the precedence ladder by calling
+## 'default_if_empty NAME VALUE'. check_variable_name (also strings.bsh) must be in
+## scope at call time.
 
 ## Derive the single "other VM" unified-image path for a unified (multi-VM) build.
 ##
@@ -70,8 +53,8 @@ derive_unified_image_paths() {
             continue
             ;;
       esac
-      set_default_variable binary_image_raw_file_for_unified "${dist_binary_build_folder}/${vm_name_item_to_be_exported}-${dist_build_version}.${target_architecture_pretty_name}.raw"
-      set_default_variable binary_image_qcow2_file_for_unified "${dist_binary_build_folder}/${vm_name_item_to_be_exported}-${dist_build_version}.${target_architecture_pretty_name}.qcow2"
+      default_if_empty binary_image_raw_file_for_unified "${dist_binary_build_folder}/${vm_name_item_to_be_exported}-${dist_build_version}.${target_architecture_pretty_name}.raw"
+      default_if_empty binary_image_qcow2_file_for_unified "${dist_binary_build_folder}/${vm_name_item_to_be_exported}-${dist_build_version}.${target_architecture_pretty_name}.qcow2"
    done
 }
 

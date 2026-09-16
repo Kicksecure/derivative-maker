@@ -28,9 +28,9 @@
 ##     Actively detrimental. Introduces a file at
 ##     /usr/lib/dracut/dracut.conf.d/50-generic.conf which sets 'hostonly="no",
 ##     overriding /etc/dracut.conf.d/30-dist-base-files.conf.
-set_default_variable BUILD_INITRAMFS_DRACUT "dracut dracut-live binutils dmsetup pigz"
+default_if_empty BUILD_INITRAMFS_DRACUT "dracut dracut-live binutils dmsetup pigz"
 
-set_default_variable BUILD_INITRAMFS_PKGS "${BUILD_INITRAMFS_DRACUT}"
+default_if_empty BUILD_INITRAMFS_PKGS "${BUILD_INITRAMFS_DRACUT}"
 
 if printf "%s\n" "${BUILD_INITRAMFS_PKGS}" | grep -- "dracut" >/dev/null 2>&1; then
    ## INITRD_GENERATOR_OPTS gets read by grml-debootstrap and passed to dracut and is also
@@ -38,7 +38,7 @@ if printf "%s\n" "${BUILD_INITRAMFS_PKGS}" | grep -- "dracut" >/dev/null 2>&1; t
    ##
    ## Worked but issue:
    ## https://forums.kicksecure.com/t/iso-error-message-during-boot-mount-sysroot-special-device-liveos-rootfs-does-not-exist/418
-   set_default_variable INITRD_GENERATOR_OPTS '--add dmsquash-live --add overlayfs --add bash'
+   default_if_empty INITRD_GENERATOR_OPTS '--add dmsquash-live --add overlayfs --add bash'
    export INITRD_GENERATOR_OPTS
 fi
 
@@ -134,7 +134,7 @@ if [ "${VMNAME:-}" = "" ]; then
    error "${MSG}"
 fi
 
-set_default_variable XZ_OPT "--threads=8"
+default_if_empty XZ_OPT "--threads=8"
 export XZ_OPT
 
 if [ "${dist_build_unsafe_io:-}" = "true" ]; then
@@ -195,7 +195,7 @@ fi
 ## Port 9977 defined by approx/approx.conf
 ## REPO_PROXY is no longer used now that we're using approx.
 #[ -n "${REPO_PROXY:-}" ] || REPO_PROXY="http://127.0.0.1:9977"
-set_default_variable APPROX_PROXY_ENABLE 'yes'
+default_if_empty APPROX_PROXY_ENABLE 'yes'
 
 [ -v DEBOOTSTRAP_PREFIX ] || DEBOOTSTRAP_PREFIX=""
 [ -v COWBUILDER_PREFIX ] || COWBUILDER_PREFIX=""
@@ -244,7 +244,7 @@ fi
 ## the same value tb-updater uses for '--resume'). Default it and export so
 ## build steps that reference ${CURL_RESUME:-} resume large downloads; an
 ## inherited value still wins.
-set_default_variable CURL_RESUME "--continue-at -"
+default_if_empty CURL_RESUME "--continue-at -"
 export CURL_RESUME
 
 ## Export COWBUILDER_PREFIX so it is available in make-helper.bsh.
@@ -287,15 +287,15 @@ else
 fi
 
 if [ "${no_git:-}" = "1" ]; then
-   set_default_variable git_bin "true"
+   default_if_empty git_bin "true"
 else
-   set_default_variable git_bin "git"
+   default_if_empty git_bin "git"
 fi
 
 ## Otherwise errors out because there is a folder grml-debootstarp in the root source folder.
 ## Cannot use `which grml-debootstrap` because that would fail before grml-debootstrap gets installed.
 #[ -n "${dist_build_grml_bin:-}" ] || dist_build_grml_bin="$(which grml-debootstrap)"
-set_default_variable dist_build_grml_bin "/usr/sbin/grml-debootstrap"
+default_if_empty dist_build_grml_bin "/usr/sbin/grml-debootstrap"
 
 if [ -z "${rsync_cmd:-}" ]; then
    if [ "${build_dry_run:-}" = "true" ]; then
@@ -336,18 +336,18 @@ fi
 ## such as variable DIST_APTGETOPT.
 ## Would miss out on security related APT configuration options:
 ## apt-get --error-on=any / -o APT::Update::Error-Mode=any
-set_default_variable dist_build_auto_retry "0"
+default_if_empty dist_build_auto_retry "0"
 
-set_default_variable dist_build_wait_auto_retry "5"
+default_if_empty dist_build_wait_auto_retry "5"
 
 ## Sanity Test.
 command -v "${git_bin}" >/dev/null
 
-set_default_variable DEB_INSTALL_FOLDER "mnt/initialdeb"
+default_if_empty DEB_INSTALL_FOLDER "mnt/initialdeb"
 export DEB_INSTALL_FOLDER
 
-set_default_variable EMPTY_DIR "/tmp/empty"
+default_if_empty EMPTY_DIR "/tmp/empty"
 export EMPTY_DIR
 
-set_default_variable derivative_maker true
+default_if_empty derivative_maker true
 export derivative_maker

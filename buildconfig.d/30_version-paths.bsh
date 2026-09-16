@@ -20,7 +20,7 @@ if [ "${dist_build_on_operating_system_detect_skip:-}" = "1" ]; then
    true "Probably run by prepare-build-machine script. lsb_release may not yet installed. Skipping setting dist_build_on_operating_system."
 else
    ## Let's find out on which host operating system the build script is running.
-   set_default_variable dist_build_on_operating_system "$(lsb_release --short --id)"
+   default_if_empty dist_build_on_operating_system "$(lsb_release --short --id)"
    ## Converting dist_build_on_operating_system to lower case to make later if comparison easier.
    dist_build_on_operating_system="${dist_build_on_operating_system,,}"
    ## Example dist_build_on_operating_system: debian
@@ -113,25 +113,25 @@ export dist_build_version
 ## }}}
 
 if [ "${dist_build_source_archive:-}" = "true" ]; then
-    set_default_variable dist_unified_name "derivative-maker-source"
+    default_if_empty dist_unified_name "derivative-maker-source"
 elif [ "${dist_build_type_short:-}" = "kicksecure" ]; then
-    set_default_variable dist_unified_name "Kicksecure-${dist_build_desktop}"
+    default_if_empty dist_unified_name "Kicksecure-${dist_build_desktop}"
 elif [ "${dist_build_type_short:-}" = "whonix" ]; then
-    set_default_variable dist_unified_name "Whonix-${dist_build_desktop}"
+    default_if_empty dist_unified_name "Whonix-${dist_build_desktop}"
 elif [ "${dist_build_type_short:-}" = "dist-installer-cli" ]; then
-    set_default_variable dist_unified_name "dist-installer-cli"
+    default_if_empty dist_unified_name "dist-installer-cli"
 elif [ "${dist_build_type_short:-}" = "source" ]; then
-    set_default_variable dist_unified_name "source"
+    default_if_empty dist_unified_name "source"
 else
     error "dist_unified_name: unhandled dist_build_type_short '${dist_build_type_short}'"
 fi
 
-set_default_variable dist_binary_build_folder "${binary_build_folder_dist}/${dist_build_version}"
+default_if_empty dist_binary_build_folder "${binary_build_folder_dist}/${dist_build_version}"
 
-set_default_variable binary_image_raw_file "${dist_binary_build_folder}/${SHORT_VMNAME}-${dist_build_desktop}-${dist_build_version}.${target_architecture_pretty_name}.raw"
-set_default_variable binary_image_qcow2_file "${dist_binary_build_folder}/${SHORT_VMNAME}-${dist_build_desktop}-${dist_build_version}.${target_architecture_pretty_name}.qcow2"
+default_if_empty binary_image_raw_file "${dist_binary_build_folder}/${SHORT_VMNAME}-${dist_build_desktop}-${dist_build_version}.${target_architecture_pretty_name}.raw"
+default_if_empty binary_image_qcow2_file "${dist_binary_build_folder}/${SHORT_VMNAME}-${dist_build_desktop}-${dist_build_version}.${target_architecture_pretty_name}.qcow2"
 
-set_default_variable base_image_raw_file "${dist_binary_build_folder}/base-image.raw"
+default_if_empty base_image_raw_file "${dist_binary_build_folder}/base-image.raw"
 if [ "${dist_build_base_image_role:-}" = "create" ]; then
    binary_image_raw_file="${base_image_raw_file}"
 elif [ "${dist_build_base_image_role:-}" = "consume" ]; then
@@ -156,7 +156,7 @@ fi
 ## 'dm-vbox-temp' can traverse to reach the (chown'ed) disk. The same mount is
 ## re-established in the export step, so the registry's absolute medium path
 ## resolves in both.
-set_default_variable binary_image_vdi_dir "${HOMEVAR}/derivative-binary_vbox-workdir"
+default_if_empty binary_image_vdi_dir "${HOMEVAR}/derivative-binary_vbox-workdir"
 
 ## Like '$binary_build_folder_dist' / '$source_code_folder_dist' (checked
 ## earlier), '$binary_image_vdi_dir' is passed via 'cowbuilder --bindmounts',
@@ -175,34 +175,34 @@ esac
 ## builds) so those vars stay UNSET rather than getting a bogus '/none-...' path.
 derive_unified_image_paths
 
-set_default_variable binary_image_ova_file "${dist_binary_build_folder}/${dist_unified_name}-${dist_build_version}.${target_architecture_pretty_name}.ova"
-set_default_variable binary_image_iso_file "${dist_binary_build_folder}/${SHORT_VMNAME}-${dist_build_desktop}-${dist_build_version}.${target_architecture_pretty_name}.iso"
-set_default_variable binary_image_windows_installer_file "${dist_binary_build_folder}/${dist_unified_name}-${dist_build_version}.exe"
-set_default_variable libvirt_target_raw_xz_archive_file "${dist_binary_build_folder}/${dist_unified_name}-${dist_build_version}.${target_architecture_pretty_name}.raw.libvirt.xz"
-set_default_variable libvirt_target_qcow2_xz_archive_file "${dist_binary_build_folder}/${dist_unified_name}-${dist_build_version}.${target_architecture_pretty_name}.qcow2.libvirt.xz"
-set_default_variable source_archive_xz_file "${dist_binary_build_folder}/${dist_unified_name}-${dist_build_version}.xz"
+default_if_empty binary_image_ova_file "${dist_binary_build_folder}/${dist_unified_name}-${dist_build_version}.${target_architecture_pretty_name}.ova"
+default_if_empty binary_image_iso_file "${dist_binary_build_folder}/${SHORT_VMNAME}-${dist_build_desktop}-${dist_build_version}.${target_architecture_pretty_name}.iso"
+default_if_empty binary_image_windows_installer_file "${dist_binary_build_folder}/${dist_unified_name}-${dist_build_version}.exe"
+default_if_empty libvirt_target_raw_xz_archive_file "${dist_binary_build_folder}/${dist_unified_name}-${dist_build_version}.${target_architecture_pretty_name}.raw.libvirt.xz"
+default_if_empty libvirt_target_qcow2_xz_archive_file "${dist_binary_build_folder}/${dist_unified_name}-${dist_build_version}.${target_architecture_pretty_name}.qcow2.libvirt.xz"
+default_if_empty source_archive_xz_file "${dist_binary_build_folder}/${dist_unified_name}-${dist_build_version}.xz"
 
-set_default_variable binary_image_text "${dist_binary_build_folder}/${SHORT_VMNAME}-${dist_build_desktop}-${dist_build_version}.text"
+default_if_empty binary_image_text "${dist_binary_build_folder}/${SHORT_VMNAME}-${dist_build_desktop}-${dist_build_version}.text"
 
 ## virtualbox-installer / dist-installer-cli
-set_default_variable binary_image_installer_dist_source "${source_code_folder_dist}/packages/kicksecure/usability-misc/usr/share/usability-misc/dist-installer-cli-standalone"
-set_default_variable binary_image_installer_dist_file "${dist_binary_build_folder}/dist-installer-cli"
+default_if_empty binary_image_installer_dist_source "${source_code_folder_dist}/packages/kicksecure/usability-misc/usr/share/usability-misc/dist-installer-cli-standalone"
+default_if_empty binary_image_installer_dist_file "${dist_binary_build_folder}/dist-installer-cli"
 
-set_default_variable libvirt_source_kvm_file "${source_code_folder_dist}/packages/kicksecure/libvirt-dist/usr/share/libvirt-dist/xml/${SHORT_VMNAME}.xml"
-set_default_variable libvirt_target_kvm_file "${dist_binary_build_folder}/${SHORT_VMNAME}.xml"
+default_if_empty libvirt_source_kvm_file "${source_code_folder_dist}/packages/kicksecure/libvirt-dist/usr/share/libvirt-dist/xml/${SHORT_VMNAME}.xml"
+default_if_empty libvirt_target_kvm_file "${dist_binary_build_folder}/${SHORT_VMNAME}.xml"
 
-set_default_variable source_utm_file "${source_code_folder_dist}/packages/kicksecure/libvirt-dist/usr/share/utm/${SHORT_VMNAME}.plist.template"
-set_default_variable binary_image_utm_folder "${dist_binary_build_folder}/${SHORT_VMNAME}-${dist_build_desktop}.utm"
+default_if_empty source_utm_file "${source_code_folder_dist}/packages/kicksecure/libvirt-dist/usr/share/utm/${SHORT_VMNAME}.plist.template"
+default_if_empty binary_image_utm_folder "${dist_binary_build_folder}/${SHORT_VMNAME}-${dist_build_desktop}.utm"
 
-set_default_variable libvirt_source_network_file_external "${source_code_folder_dist}/packages/kicksecure/libvirt-dist/usr/share/libvirt-dist/xml/Whonix-External.xml"
-set_default_variable libvirt_target_network_file_external "${dist_binary_build_folder}/Whonix_external_network.xml"
+default_if_empty libvirt_source_network_file_external "${source_code_folder_dist}/packages/kicksecure/libvirt-dist/usr/share/libvirt-dist/xml/Whonix-External.xml"
+default_if_empty libvirt_target_network_file_external "${dist_binary_build_folder}/Whonix_external_network.xml"
 
-set_default_variable libvirt_source_network_file_internal "${source_code_folder_dist}/packages/kicksecure/libvirt-dist/usr/share/libvirt-dist/xml/Whonix-Internal.xml"
-set_default_variable libvirt_target_network_file_internal "${dist_binary_build_folder}/Whonix_internal_network.xml"
+default_if_empty libvirt_source_network_file_internal "${source_code_folder_dist}/packages/kicksecure/libvirt-dist/usr/share/libvirt-dist/xml/Whonix-Internal.xml"
+default_if_empty libvirt_target_network_file_internal "${dist_binary_build_folder}/Whonix_internal_network.xml"
 
 # TODO: broken
-set_default_variable copy_vms_into_raw_file_one "${dist_binary_build_folder}/Whonix-Gateway-${dist_build_desktop}-${dist_build_version}.qcow2"
-set_default_variable copy_vms_into_raw_file_two "${dist_binary_build_folder}/Whonix-Workstation-${dist_build_desktop}-${dist_build_version}.qcow2"
+default_if_empty copy_vms_into_raw_file_one "${dist_binary_build_folder}/Whonix-Gateway-${dist_build_desktop}-${dist_build_version}.qcow2"
+default_if_empty copy_vms_into_raw_file_two "${dist_binary_build_folder}/Whonix-Workstation-${dist_build_desktop}-${dist_build_version}.qcow2"
 
 ## Sanity test. dm-prepare-release uses 'rm --force --recursive'.
 ## XXX: hardcoded derivative-binary

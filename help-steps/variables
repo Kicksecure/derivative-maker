@@ -54,9 +54,11 @@ source "${HELPER_SCRIPTS_PATH}"/usr/libexec/helper-scripts/strings.bsh
 ## also holds the *.conf config snippets, sourced separately as the config layer;
 ## the loader sources only the *.bsh resolver modules here.)
 ##
-## 05_lib.bsh (set_default_variable + derive_unified_image_paths) loads first so
-## the later modules can call those helpers; it is a separate, sourced-only file
-## (not inlined) so a unit test can source and call the helpers directly.
+## 05_lib.bsh (derive_unified_image_paths + dist_build_source_config_dir) loads
+## first so the later modules can call those helpers; it is a separate,
+## sourced-only file (not inlined) so a unit test can source and call the helpers
+## directly. The fill-if-empty precedence primitive is default_if_empty from
+## strings.bsh (sourced just above), not a local reimplementation.
 # shellcheck source=../buildconfig.d/05_lib.bsh
 source "${source_code_folder_dist}/buildconfig.d/05_lib.bsh"
 # shellcheck source=../buildconfig.d/00_preamble.bsh
