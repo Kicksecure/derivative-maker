@@ -143,7 +143,11 @@ export binary_build_folder_dist
 ## ('for i in $BINDMOUNTS'), so a path containing whitespace silently breaks the
 ## bind-mount. Fail early here, with a clear message, instead of late with a
 ## cryptic pbuilder error.
-for space_check_var in binary_build_folder_dist source_code_folder_dist ; do
+## HOMEVAR too: binary_build_folder_dist defaults to "${HOMEVAR}/derivative-binary"
+## and the ~/buildconfig.d config tier derives from it, so a space in HOMEVAR
+## breaks the same bind-mount / config-dir sourcing -- catch it at the source with
+## a clear message rather than only via the derived path.
+for space_check_var in HOMEVAR binary_build_folder_dist source_code_folder_dist ; do
    case "${!space_check_var}" in
       *[[:space:]]*)
          error "${space_check_var} must not contain whitespace (it is bind-mounted into the cowbuilder chroot and pbuilder word-splits BINDMOUNTS): '${!space_check_var}'"

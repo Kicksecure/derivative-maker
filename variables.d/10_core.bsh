@@ -133,10 +133,16 @@ fi
 ## already-set value from parse-cmd or the environment survives). The OpenPGP
 ## policy/cert walk in 50 reads the full list.
 default_if_empty dist_build_config_dirs_list "${source_code_folder_dist}/buildconfig.d /etc/buildconfig-dist.d ${HOMEVAR}/buildconfig.d"
-for dist_build_config_dir_item in ${dist_build_config_dirs_list#* }; do
+## Source the USER tiers (every entry EXCEPT the first) EARLY; the first entry is
+## the shipped in-tree tier, sourced LATE by 50_config-signing-pgp.bsh. Split via
+## an array, not '${list#* }': with a single-entry override (no space) that prefix
+## strip yields the whole entry, so the in-tree tier would be sourced here AND in
+## 50 -- double-sourcing a user's accumulators (SKIP_SCRIPTS, DIST_APTGETOPT).
+read -r -a dist_build_config_dirs_array <<< "${dist_build_config_dirs_list}"
+for dist_build_config_dir_item in "${dist_build_config_dirs_array[@]:1}"; do
    dist_build_source_config_dir "${dist_build_config_dir_item}"
 done
-unset dist_build_config_dir_item
+unset dist_build_config_dir_item dist_build_config_dirs_array
 if [ ! "${dist_build_custom_config_dir:-}" = "" ]; then
    dist_build_source_config_dir "${dist_build_custom_config_dir}"
 fi
@@ -581,8 +587,14 @@ elif [ "${dist_build_type_short:-}" = "dist-installer-cli" ]; then
    default_if_empty project_clearnet "kicksecure.com"
    true "${BASH_SOURCE[0]} INFO: dist_build_type_short is 'dist-installer-cli'. Build Whonix Windows Installer only for Whonix LXQt for VirtualBox. Therefore: maybe_disable_dist_build_windows_installer"
    maybe_disable_dist_build_windows_installer
-   ## Hardcoded.
+   ## Hardcoded. SHORT_VMNAME + dist_build_desktop too: 30_version-paths derives the
+   ## image-path names from them under nounset, so an unset value aborts resolution
+   ## for this flavor. Like 'source' (a non-image, multi-derivative build), it has no
+   ## real VM image, so mirror source's defaults ('none' desktop) rather than leave
+   ## them unset. The flavor block does not set them, unlike whonix/kicksecure.
    VMNAME=dist-installer-cli
+   default_if_empty SHORT_VMNAME "dist-installer-cli"
+   default_if_empty dist_build_desktop "none"
 elif [ "${dist_build_type_short:-}" = "source" ]; then
    ## --flavor source / --target source path. Set the same defaults the
    ## kicksecure / whonix / dist-installer-cli branches set, so later
