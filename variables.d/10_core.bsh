@@ -36,7 +36,9 @@ cd -- "${source_code_folder_dist}" || exit 1
 
 default_if_empty dist_aptgetopt_file "${binary_build_folder_dist}/30_derivative-maker.conf"
 export dist_aptgetopt_file
-${SUDO_TO_ROOT} rm --force -- "${dist_aptgetopt_file}"
+## Accumulate the apt-option lines here; variables.d/99_effects.bsh writes the
+## file once, atomically (no per-line append, no source-time rm of a stale file).
+dist_aptgetopt_file_content=""
 
 ## DIST_ prefix avoids a name collision with pbuilder/cowbuilder, which use
 ## their own array variable 'APTGETOPT' (see pbuilderrc) that gets sourced
@@ -71,8 +73,7 @@ aptgetopt_add() {
 }
 
 aptgetopt_conf_add () {
-   mkdir --parents -- "${binary_build_folder_dist}/"
-   printf "%s\n" "$1" | tee --append -- "${dist_aptgetopt_file}" >/dev/null
+   dist_aptgetopt_file_content+="$1"$'\n'
 }
 
 ## Avoiding "perl: warning: Setting locale failed." as suggested on

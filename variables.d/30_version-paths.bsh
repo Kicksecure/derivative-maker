@@ -214,4 +214,4 @@ if ! printf "%s\n" "${dist_binary_build_folder}" | grep --fixed-strings -- "deri
    exit 1
 fi
 
-mkdir --parents -- "${dist_binary_build_folder}"
+## dist_binary_build_folder is created by variables.d/99_effects.bsh, not here.
