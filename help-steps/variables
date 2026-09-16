@@ -45,36 +45,30 @@ export HELPER_SCRIPTS_PATH
 # shellcheck source=../packages/kicksecure/helper-scripts/usr/libexec/helper-scripts/strings.bsh
 source "${HELPER_SCRIPTS_PATH}"/usr/libexec/helper-scripts/strings.bsh
 
-## Load the split variable-resolution modules from the top-level buildconfig.d/
-## (a sibling of help-steps/, = source_code_folder_dist), in explicit order. The
-## base path variables above were resolved from THIS file's own location; the
-## modules inherit them rather than recomputing from their own BASH_SOURCE.
-## Sourced by explicit name (not a glob loop) so the load order is visible and no
-## plumbing loop variable leaks into the captured build environment. (buildconfig.d
-## also holds the *.conf config snippets, sourced separately as the config layer;
-## the loader sources only the *.bsh resolver modules here.)
+## Load the in-tree variable-resolution modules from variables.d/ (a sibling of
+## help-steps/, = source_code_folder_dist), in filename order. variables.d holds
+## the LOGIC (derivation + the functions build steps call); it is in-tree only,
+## never a user-override tier -- that is buildconfig.d/, the SETTINGS dir, whose
+## *.conf snippets are sourced separately as the config layer (10_core.bsh loops
+## the user tiers early; 50_config-signing-pgp.bsh sources the shipped tier late).
 ##
-## 05_lib.bsh (derive_unified_image_paths + dist_build_source_config_dir) loads
-## first so the later modules can call those helpers; it is a separate,
-## sourced-only file (not inlined) so a unit test can source and call the helpers
-## directly. The fill-if-empty precedence primitive is default_if_empty from
-## strings.bsh (sourced just above), not a local reimplementation.
-# shellcheck source=../buildconfig.d/05_lib.bsh
-source "${source_code_folder_dist}/buildconfig.d/05_lib.bsh"
-# shellcheck source=../buildconfig.d/00_preamble.bsh
-source "${source_code_folder_dist}/buildconfig.d/00_preamble.bsh"
-# shellcheck source=../buildconfig.d/10_core.bsh
-source "${source_code_folder_dist}/buildconfig.d/10_core.bsh"
-# shellcheck source=../buildconfig.d/20_initramfs-iso-io.bsh
-source "${source_code_folder_dist}/buildconfig.d/20_initramfs-iso-io.bsh"
-# shellcheck source=../buildconfig.d/30_version-paths.bsh
-source "${source_code_folder_dist}/buildconfig.d/30_version-paths.bsh"
-# shellcheck source=../buildconfig.d/40_upload.bsh
-source "${source_code_folder_dist}/buildconfig.d/40_upload.bsh"
-# shellcheck source=../buildconfig.d/50_config-signing-pgp.bsh
-source "${source_code_folder_dist}/buildconfig.d/50_config-signing-pgp.bsh"
-# shellcheck source=../buildconfig.d/60_repos-cowbuilder-dump.bsh
-source "${source_code_folder_dist}/buildconfig.d/60_repos-cowbuilder-dump.bsh"
+## Numeric prefixes fix the order: 05_lib.bsh (derive_unified_image_paths +
+## dist_build_source_config_dir) sorts before its first caller (10_core.bsh); the
+## base path variables above were resolved from THIS file's own location, so the
+## modules inherit them rather than recomputing from their own BASH_SOURCE. The
+## fill-if-empty precedence primitive is default_if_empty from strings.bsh (sourced
+## just above), not a local reimplementation.
+shopt -s nullglob
+for variables_d_module in "${source_code_folder_dist}/variables.d/"*.bsh; do
+   ## Dynamic path: shellcheck cannot follow it; the modules are checked in CI on
+   ## their own. bash -n first so a syntax error names the module, not this loader.
+   bash -n -- "${variables_d_module}"
+   # shellcheck disable=SC1090
+   source -- "${variables_d_module}"
+done
+## Not exported (a loop-plumbing name, not build config); unset so it never lands
+## in a captured variable snapshot.
+unset variables_d_module
 
 ## Mark this shell's variable resolution complete so a second 'source
 ## help-steps/variables' in the SAME shell is a no-op (each module early-returns
