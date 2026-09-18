@@ -207,6 +207,19 @@ pkg-list-install() {
    fi
 }
 
+resolve-partition-uuid() {
+   ## Print the UUID of the partition whose NAME column exactly equals the given
+   ## name, matched as a LITERAL whole field (never a regex): the name comes from
+   ## grub-probe output, so a regex/substring match would let a metacharacter be
+   ## interpreted, or 'loop0p1' also match 'loop0p10', and pick the wrong
+   ## partition's UUID. Prints nothing when there is no exact match. awk
+   ## '$1 == dev' compares strings and 'exit' takes the first match.
+   local partition_name
+   partition_name="$1"
+   lsblk --raw --noheadings --output NAME,UUID \
+      | awk -v dev="${partition_name}" '$1 == dev { print $2; exit }'
+}
+
 install-packages() {
    exception_handler_setup "exception_handler_unchroot_unmount" ERR INT TERM
 
@@ -638,12 +651,7 @@ ${dist_build_script_skip_package_install}${reset}"
         error '/boot/grub/grub.cfg contains root=/dev/mapper and cannot find proper boot device - image most likely unbootable!'
       fi
       grub_probe_target_device="$(cut -d'/' -f4 <<< "${grub_probe_target_device}")"
-      ## Anchor the match to the exact device name (name followed by a space in
-      ## 'lsblk -rno NAME,UUID' output); a substring match would let 'loop0p1'
-      ## also match 'loop0p10' and pick the wrong partition's UUID.
-      grub_probe_target_device="$(lsblk -rno NAME,UUID | grep -- "^${grub_probe_target_device} ")"
-      grub_probe_target_device="$(cut -d' ' -f2 <<< "${grub_probe_target_device}")"
-      grub_probe_target_device="$(head -n1 <<< "${grub_probe_target_device}")"
+      grub_probe_target_device="$(resolve-partition-uuid "${grub_probe_target_device}")"
       if [ -z "${grub_probe_target_device}" ]; then
         error '/boot/grub/grub.cfg contains root=/dev/mapper and cannot find boot device UUID - image most likely unbootable!'
       fi
