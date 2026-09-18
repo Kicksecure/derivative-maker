@@ -228,7 +228,16 @@ case "${source_date_epoch}" in ''|*[!0-9]*) error "--source-date-epoch must be a
 ## Normalize to base 10: a value with a leading zero (e.g. '08') is later used in
 ## arithmetic, where bash would read it as octal and abort ('08: value too great
 ## for base'). 10# forces decimal and strips the leading zeros here, once.
-source_date_epoch="$(( 10#${source_date_epoch} ))"
+## $(( )) SILENTLY WRAPS on 64-bit overflow (2^64 -> 0 -> a 1970 build; 2^63 ->
+## negative), so verify the result round-trips against the leading-zero-stripped
+## input and error out rather than corrupt SOURCE_DATE_EPOCH.
+source_date_epoch_normalized="$(( 10#${source_date_epoch} ))"
+source_date_epoch_stripped="${source_date_epoch#"${source_date_epoch%%[!0]*}"}"
+[ -n "${source_date_epoch_stripped}" ] || source_date_epoch_stripped=0
+if [ "${source_date_epoch_normalized}" -lt 0 ] || [ "${source_date_epoch_normalized}" != "${source_date_epoch_stripped}" ] ; then
+   error "--source-date-epoch '${source_date_epoch}' is out of range (overflows a 64-bit integer)"
+fi
+source_date_epoch="${source_date_epoch_normalized}"
 export SOURCE_DATE_EPOCH="${source_date_epoch}"
 
 ## Per-arch GRUB platform / EFI naming, matching live-build's efi-image mapping.
@@ -379,8 +388,17 @@ done
 dpkg-query --admindir="${rootfs}/var/lib/dpkg" --show > "${binary}/live/filesystem.packages"
 
 ## Keyboard-layout submenu (44_kb_layout, usability-misc); the layouts it loads
-## are already built in the rootfs by 3500 (set-grub-keymap --build-all).
-kb_layout_submenu="$(chroot "${rootfs}" /etc/grub.d/44_kb_layout)" || kb_layout_submenu=""
+## are already built in the rootfs by 3500 (set-grub-keymap --build-all), so the
+## harvest is expected to succeed. FAIL CLOSED (like the kernel-hardening harvest
+## below) on a non-zero exit rather than silently shipping an ISO with a broken /
+## missing keyboard-layout menu; stderr is left un-redirected so the underlying
+## error reaches the build log. An exit-0 empty result is a legitimate "no
+## layouts" and is handled by the '-n' guard where the submenu is emitted.
+kb_layout_rc=0
+kb_layout_submenu="$(chroot "${rootfs}" /etc/grub.d/44_kb_layout)" || kb_layout_rc=$?
+if [ "${kb_layout_rc}" -ne 0 ] ; then
+   error "keyboard-layout harvest (/etc/grub.d/44_kb_layout) failed in the rootfs (exit ${kb_layout_rc}); refusing to build an ISO with a broken keyboard-layout menu"
+fi
 mkdir -p -- "${binary}/boot/grub/kb_layouts"
 if [ -d "${rootfs}/boot/grub/kb_layouts" ] ; then
    cp -a -- "${rootfs}/boot/grub/kb_layouts/." "${binary}/boot/grub/kb_layouts/"
