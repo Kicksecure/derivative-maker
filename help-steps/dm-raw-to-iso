@@ -24,10 +24,13 @@
 ## initramfs, and packed into the ISO. The input image is never modified.
 ##
 ## Loop devices, kpartx and chroot require root and a permissive environment; run
-## this in a sandbox VM, not on a trusted host.
+## this in the build container, not a trusted host.
 ##
-## The full command sequence and the reasoning behind each step are documented in
-## usr/share/dm-raw-to-iso/README.md.
+## derivative-maker-SPECIFIC (not a generic tool): it reads dm's GRUB menu/theme
+## from --grub-config-dir (iso-build-data/grub-config), harvests the rootfs itself
+## (keyboard-layout submenu, package manifest, kernel-hardening cmdline) in the
+## SAME chroot it builds the live initramfs in, and assembles the boot roles. Its
+## only caller is build-steps.d/4310_convert-raw-to-iso.
 
 set -o errexit
 set -o nounset
@@ -39,25 +42,18 @@ export LC_ALL=C
 
 me="${BASH_SOURCE[0]##*/}"
 
-## This tool ships NO GRUB config of its own: the caller supplies a complete
-## /boot/grub via --grub-overlay (config.cfg, grub.cfg, loopback.cfg,
-## esp-redirect.cfg, plus any menu/theme). The tool only stages it and fills in
-## the two computed tokens (@APPEND_LIVE@, @TIMEOUT@).
-
 usage() {
    cat <<EOF
-Usage: ${me} --raw <image> --output <iso> --grub-overlay <dir> [options]
+Usage: ${me} --raw <image> --output <iso> --grub-config-dir <dir> --hostname <h> [options]
 
 Required:
   --raw <image>            bootable raw disk image (from 3200_create-raw-image)
   --output <iso>           output ISO path
-  --grub-overlay <dir>     the complete /boot/grub the ISO boots from: at least
-                           config.cfg, grub.cfg, loopback.cfg and esp-redirect.cfg,
-                           plus any menu/theme/fonts/kb_layouts. Copied into the
-                           ISO's /boot/grub (and esp-redirect.cfg packed into the
-                           ESP). In any *.cfg, @APPEND_LIVE@ is replaced with the
-                           live kernel command line and @TIMEOUT@ with the menu
-                           timeout, both computed here. This tool ships no config.
+  --grub-config-dir <dir>  dm's GRUB config source (iso-build-data/grub-config):
+                           config.cfg, grub.cfg, loopback.cfg, esp-redirect.cfg,
+                           theme.cfg, smbios-reader.cfg, live-theme/theme.txt,
+                           splash.svg. Assembled into the ISO's /boot/grub here.
+  --hostname <h>           live-config.hostname value for the live boot roles
 
 Options:
   --arch <a>               target architecture: amd64|i386|arm64|armhf (default:
@@ -65,12 +61,11 @@ Options:
                            arm64/armhf are EFI-only.
   --label <volid>          ISO volume label; must match root=live:CDLABEL=<volid>
                            (default: DM_LIVE)
-  --bootappend <str>       extra kernel command line appended to the live entry
-  --serial-console         bake a serial console (ttyS0,115200) into GRUB and the
-                           kernel cmdline and boot the default entry immediately
-                           (timeout 0) -- for headless boot testing
-  --live-overlay <dir>     copy <dir>'s contents into the ISO's /live/ (e.g. a
-                           memtest binary, a package manifest)
+  --dist-pretty <name>     product name substituted into the splash (@DIST_NAME@)
+  --dist-version <ver>     product version substituted into the splash (@DIST_VERSION@)
+  --serial-console         route GRUB + kernel to ttyS0,115200 and boot the default
+                           entry immediately (timeout 0) -- headless boot testing
+  --smbios-reader          inline the SMBIOS cmdline reader into the menu (test builds)
   --source-date-epoch <n>  UNIX timestamp for reproducible output (default: env
                            SOURCE_DATE_EPOCH, else the raw image's mtime)
   --keep-workdir           do not delete the temporary work directory on exit
@@ -103,15 +98,18 @@ require_file() {
    done
 }
 
-## Arguments.
+## Arguments (dm-specific; 4310_convert-raw-to-iso passes them from the build's
+## variables).
 raw=""
 output=""
 arch=""
 label="DM_LIVE"
-bootappend=""
+grub_config_dir=""
+dist_hostname=""
+dist_pretty=""
+dist_version=""
 serial_console="false"
-grub_overlay=""
-live_overlay=""
+smbios_reader="false"
 source_date_epoch="${SOURCE_DATE_EPOCH:-}"
 keep_workdir="false"
 
@@ -137,24 +135,33 @@ while [ "$#" -gt 0 ] ; do
          label="$2"
          shift 2
          ;;
-      --bootappend)
-         [ "$#" -ge 2 ] || error "--bootappend requires a value"
-         bootappend="$2"
+      --grub-config-dir)
+         [ "$#" -ge 2 ] || error "--grub-config-dir requires a value"
+         grub_config_dir="$2"
+         shift 2
+         ;;
+      --hostname)
+         [ "$#" -ge 2 ] || error "--hostname requires a value"
+         dist_hostname="$2"
+         shift 2
+         ;;
+      --dist-pretty)
+         [ "$#" -ge 2 ] || error "--dist-pretty requires a value"
+         dist_pretty="$2"
+         shift 2
+         ;;
+      --dist-version)
+         [ "$#" -ge 2 ] || error "--dist-version requires a value"
+         dist_version="$2"
          shift 2
          ;;
       --serial-console)
          serial_console="true"
          shift
          ;;
-      --grub-overlay)
-         [ "$#" -ge 2 ] || error "--grub-overlay requires a value"
-         grub_overlay="$2"
-         shift 2
-         ;;
-      --live-overlay)
-         [ "$#" -ge 2 ] || error "--live-overlay requires a value"
-         live_overlay="$2"
-         shift 2
+      --smbios-reader)
+         smbios_reader="true"
+         shift
          ;;
       --source-date-epoch)
          [ "$#" -ge 2 ] || error "--source-date-epoch requires a value"
@@ -183,7 +190,7 @@ done
 if [ "$(readlink -f -- "${raw}")" = "$(readlink -f -- "${output}" 2>/dev/null)" ] ; then
    error "--output must not be the same file as --raw"
 fi
-[ -z "${live_overlay}" ] || [ -d "${live_overlay}" ] || error "--live-overlay is not a directory: '${live_overlay}'"
+[ -n "${dist_hostname}" ] || error "--hostname is required (see --help)"
 
 if [ -z "${arch}" ] ; then
    require_cmd dpkg
@@ -232,23 +239,21 @@ case "${arch}" in
       ;;
 esac
 
-## The consumer overlay IS the ISO's /boot/grub (this tool ships none), so it is
-## required and must carry the core files or the ISO boots nothing. Checked with
-## the other arg validation (before the dependency check, so it runs tool-less),
-## but after --arch / --source-date-epoch so those report their own error first.
-[ -n "${grub_overlay}" ] || error "--grub-overlay is required (see --help)"
-[ -d "${grub_overlay}" ] || error "--grub-overlay is not a directory: '${grub_overlay}'"
-grub_overlay_required_file=""
-for grub_overlay_required_file in config.cfg grub.cfg loopback.cfg esp-redirect.cfg ; do
-   [ -r "${grub_overlay}/${grub_overlay_required_file}" ] || error "--grub-overlay is missing required file '${grub_overlay_required_file}': it must be a complete /boot/grub (this tool ships none)"
+## dm's GRUB config source (iso-build-data/grub-config): dm-raw-to-iso assembles
+## the ISO's /boot/grub from these, so the directory and its core files must
+## exist. Checked after --arch / --source-date-epoch so those report first.
+[ -n "${grub_config_dir}" ] || error "--grub-config-dir is required (see --help)"
+[ -d "${grub_config_dir}" ] || error "--grub-config-dir is not a directory: '${grub_config_dir}'"
+grub_config_required_file=""
+for grub_config_required_file in config.cfg grub.cfg loopback.cfg esp-redirect.cfg theme.cfg smbios-reader.cfg live-theme/theme.txt splash.svg ; do
+   [ -r "${grub_config_dir}/${grub_config_required_file}" ] || error "--grub-config-dir is missing required file '${grub_config_required_file}'"
 done
 
 ## Dependency check up front (fail loud). Only HOST tools here. The GRUB modules,
-## unicode font and signed EFI loaders are taken from the TARGET ROOTFS (so a
-## cross-arch build gets the TARGET-arch loaders, exactly as live-build built them
-## inside the target chroot); those are checked after the rootfs is copied out
-## (see "rootfs bootloader inputs" below), not against the host.
-require_cmd xorriso grub-mkimage mkfs.msdos mmd mcopy mksquashfs cp find touch stat chroot mount umount kpartx losetup safe-rm
+## unicode font and signed EFI loaders are taken from the TARGET ROOTFS (checked
+## after the rootfs is copied out). grub-mkconfig and the /etc/grub.d scripts run
+## in the chroot (the rootfs ships them), so they are not host requirements.
+require_cmd xorriso grub-mkimage mkfs.msdos mmd mcopy mksquashfs cp find touch stat chroot mount umount kpartx losetup safe-rm dpkg-query rsvg-convert sed grep
 
 ## Work directory + teardown. Track loop/kpartx maps and mounts and tear them down
 ## in reverse on any exit so a failure never leaks a loop device or a bind mount.
@@ -340,29 +345,73 @@ if [ "${bios}" = "true" ] ; then
 fi
 require_file "${rootfs}/usr/share/grub/unicode.pf2"
 
-## Neutralize the input's /etc/fstab: a DISK image mounts its own partitions
-## (root by UUID, /boot/efi, swap) there, none of which exist in a live boot -- so
-## local-fs.target fails and the guest drops to emergency mode (root locked = no
-## login). The live root is the squashfs via dracut-live; systemd auto-mounts the
-## API filesystems, so an empty fstab is correct. This is what live-config does.
-if [ -e "${rootfs}/etc/fstab" ] ; then
-   printf '# emptied by dm-raw-to-iso: live boot mounts no disk partitions\n' > "${rootfs}/etc/fstab"
-fi
-## crypttab likewise references the disk's encrypted volumes; drop it for live boot.
-if [ -e "${rootfs}/etc/crypttab" ] ; then
-   printf '# emptied by dm-raw-to-iso: no disk crypto volumes in a live boot\n' > "${rootfs}/etc/crypttab"
-fi
-
 ######################################################################
-## 2. Build the live (dracut-live) initramfs and stage the kernel.
+## 2. Harvest from the rootfs, then build the live (dracut-live) initramfs, in
+##    ONE chroot of the copied rootfs.
 ######################################################################
-## Bind the host API filesystems into the rootfs copy so dracut can run there.
+## Bind the host API filesystems into the rootfs copy so the chroot can run.
 for api in /dev /dev/pts /proc /sys /run ; do
    target="${rootfs}${api}"
    mkdir -p -- "${target}"
    mount --bind -- "${api}" "${target}"
    mounts+=( "${target}" )
 done
+
+## 2a. Harvest the things that can only come from inside the image, while
+## /etc/fstab is still intact (grub-mkconfig reads it).
+## Package manifest -> the ISO's /live/filesystem.packages (host dpkg-query
+## reading the rootfs db; no chroot needed).
+dpkg-query --admindir="${rootfs}/var/lib/dpkg" --show > "${binary}/live/filesystem.packages"
+
+## Keyboard-layout submenu (44_kb_layout, usability-misc); the layouts it loads
+## are already built in the rootfs by 3500 (set-grub-keymap --build-all).
+kb_layout_submenu="$(chroot "${rootfs}" /etc/grub.d/44_kb_layout)" || kb_layout_submenu=""
+mkdir -p -- "${binary}/boot/grub/kb_layouts"
+if [ -d "${rootfs}/boot/grub/kb_layouts" ] ; then
+   cp -a -- "${rootfs}/boot/grub/kb_layouts/." "${binary}/boot/grub/kb_layouts/"
+fi
+
+## Kernel-command-line hardening (mitigations, slab_nomerge, rd.shell=0,
+## rd.emergency=halt, debugfs=off, ...) that security-misc sets via
+## /etc/default/grub.d: grub-mkconfig emits it on the disk 'linux' line, but the
+## live path has none, so without this scrape the ISO boots UNHARDENED.
+grub_cfg_output="$(chroot "${rootfs}" grub-mkconfig 2>/dev/null)" || true
+linux_lines="$(printf '%s\n' "${grub_cfg_output}" | grep -E '^[[:space:]]*linux[[:space:]]')" || true
+rootfs_linux_line="$(printf '%s\n' "${linux_lines}" | head -n1)" || true
+## Reduce the 'linux' line to the hardening params by token content, not a
+## positional cut: 1) drop indent + 'linux' + kernel path; 2) drop the disk
+## 'root=' (the live entry sets root=live:CDLABEL=); 3) drop a standalone 'ro';
+## 4) drop the literal '${dm_smbios_extra}' (added separately below); collapse+trim.
+cmdline_params="$(printf '%s' "${rootfs_linux_line}" | sed -E 's/^[[:space:]]*linux[[:space:]]+[^[:space:]]+[[:space:]]+//')"
+cmdline_no_root="$(printf '%s' "${cmdline_params}" | sed -E 's/(^|[[:space:]])root=[^[:space:]]*/ /g')"
+rootfs_kernel_hardening="$(printf '%s' "${cmdline_no_root}" | sed -E 's/(^|[[:space:]])ro([[:space:]]|$)/ /g')"
+# shellcheck disable=SC2016
+rootfs_kernel_hardening="${rootfs_kernel_hardening//'${dm_smbios_extra}'/}"
+rootfs_kernel_hardening="$(printf '%s' "${rootfs_kernel_hardening}" | tr -s ' ')"
+rootfs_kernel_hardening="${rootfs_kernel_hardening#"${rootfs_kernel_hardening%%[![:space:]]*}"}"
+rootfs_kernel_hardening="${rootfs_kernel_hardening%"${rootfs_kernel_hardening##*[![:space:]]}"}"
+## FAIL CLOSED on an EMPTY result: a dm image is hardened, so an empty scrape means
+## grub-mkconfig failed or the extraction broke. Silently omitting the hardening
+## (shipping an unhardened live ISO with no error) is exactly the failure this
+## scrape exists to prevent, so refuse rather than warn.
+if [ -z "${rootfs_kernel_hardening}" ] ; then
+   error "kernel-hardening scrape produced NO parameters (grub-mkconfig output empty or unparsable); refusing to build an unhardened live ISO"
+fi
+
+## 2b. Neutralize /etc/fstab + /etc/crypttab (done AFTER the harvest above so
+## grub-mkconfig saw the real fstab): a DISK image mounts its own partitions
+## (root by UUID, /boot/efi, swap) and crypto volumes, none of which exist in a
+## live boot -- local-fs.target would fail and drop the guest to emergency mode.
+## The live root is the squashfs via dracut-live; an empty fstab is what
+## live-config does.
+if [ -e "${rootfs}/etc/fstab" ] ; then
+   printf '# emptied by dm-raw-to-iso: live boot mounts no disk partitions\n' > "${rootfs}/etc/fstab"
+fi
+if [ -e "${rootfs}/etc/crypttab" ] ; then
+   printf '# emptied by dm-raw-to-iso: no disk crypto volumes in a live boot\n' > "${rootfs}/etc/crypttab"
+fi
+
+## 2c. Build the live initramfs.
 
 ## sort -V (version sort): a plain sort is lexical (5.9 > 5.19), so an image
 ## carrying more than one kernel would pick the wrong "newest" one.
@@ -494,7 +543,7 @@ done
 ## ESP-redirect grub.cfg (from the overlay): some firmware loads the EFI grub with
 ## root set to the ESP itself, so redirect to the real config on the medium
 ## carrying /.disk/info.
-cp -- "${grub_overlay}/esp-redirect.cfg" "${esp_stage}/boot/grub/grub.cfg"
+cp -- "${grub_config_dir}/esp-redirect.cfg" "${esp_stage}/boot/grub/grub.cfg"
 
 ## Pack EFI/boot/*.efi + the redirect grub.cfg into a minimal FAT ESP.
 find "${esp_stage}" -exec touch --no-dereference --date="@${SOURCE_DATE_EPOCH}" -- {} +
@@ -521,31 +570,47 @@ cp -a -- "${esp_stage}/EFI" "${binary}/EFI"
 printf '%s: writing GRUB configuration\n' "${me}" >&2
 cp -a -- "${rootfs}/usr/share/grub/unicode.pf2" "${binary}/boot/grub/unicode.pf2"
 
-## Kernel command line for the live entry. findiso/iso-scan let it also boot when
-## the .iso is loop-mounted from another GRUB (iso_path is set by loopback there,
-## empty on direct boot -- harmless).
+## Live kernel command line. The base carries the dracut-live boot contract
+## (root=live:CDLABEL=, rd.live.*, iso-scan/filename for loop-mount); ${iso_path}
+## stays unexpanded for GRUB. On top: the live-config hostname, the harvested
+## kernel hardening, an optional serial console, and (for test builds) the literal
+## ${dm_smbios_extra} the SMBIOS reader fills at boot.
 live_append="rd.live.overlay.overlayfs=1 boot=live components splash rd.live.image root=live:CDLABEL=${label} rd.live.dir=live rd.live.squashimg=filesystem.squashfs iso-scan/filename=\${iso_path}"
-if [ -n "${bootappend}" ] ; then
-   live_append="${live_append} ${bootappend}"
-fi
+live_append="${live_append} live-config.hostname=${dist_hostname}"
 
-grub_timeout="5"
+grub_timeout="30"
 if [ "${serial_console}" = "true" ] ; then
+   ## kernel + serial console; boot the default entry immediately (headless).
    live_append="${live_append} console=tty0 console=ttyS0,115200n8"
    grub_timeout="0"
 fi
+## Kernel hardening ahead of the SMBIOS token so an injected console= still wins.
+live_append="${live_append} ${rootfs_kernel_hardening}"
+if [ "${smbios_reader}" = "true" ] ; then
+   ## Single quotes: '${dm_smbios_extra}' must reach grub.cfg un-expanded.
+   # shellcheck disable=SC2016
+   live_append="${live_append} "'${dm_smbios_extra}'
+fi
 
-## GRUB config is the consumer overlay in full (this tool ships none): stage it
-## into /boot/grub, optionally append a serial terminal for --serial-console, then
-## substitute the two computed tokens in every *.cfg -- @APPEND_LIVE@ (the live
-## kernel cmdline) and @TIMEOUT@ (the menu timeout). Literal (parameter)
-## substitution only: ${iso_path} / ${dm_smbios_extra} stay unexpanded for GRUB to
-## resolve at boot.
-printf '%s: staging GRUB overlay %s\n' "${me}" "${grub_overlay}" >&2
-cp --archive -- "${grub_overlay}/." "${binary}/boot/grub/"
+## Assemble dm's GRUB config (from --grub-config-dir) into the ISO's /boot/grub.
+printf '%s: assembling GRUB configuration\n' "${me}" >&2
+cp -- "${grub_config_dir}/grub.cfg"     "${binary}/boot/grub/grub.cfg"
+cp -- "${grub_config_dir}/config.cfg"   "${binary}/boot/grub/config.cfg"
+cp -- "${grub_config_dir}/loopback.cfg" "${binary}/boot/grub/loopback.cfg"
+cp -- "${grub_config_dir}/theme.cfg"    "${binary}/boot/grub/theme.cfg"
+mkdir -p -- "${binary}/boot/grub/live-theme"
+cp -- "${grub_config_dir}/live-theme/theme.txt" "${binary}/boot/grub/live-theme/theme.txt"
 
-## --serial-console: route the GRUB menu to ttyS0 too ('console' kept so video
-## still works). The kernel console= and timeout=0 ride the tokens above.
+## Append the harvested keyboard-layout submenu and source the theme inside it so
+## it matches the rest of the menu.
+if [ -n "${kb_layout_submenu}" ] ; then
+   printf '%s\n' "${kb_layout_submenu}" >> "${binary}/boot/grub/grub.cfg"
+   sed -i "s/\(submenu 'Keyboard layout options'.*\)/\1\n  source \/boot\/grub\/theme.cfg/" \
+      "${binary}/boot/grub/grub.cfg"
+fi
+
+## --serial-console: route the GRUB menu to ttyS0 too (video kept), appended after
+## config.cfg's 'terminal_output gfxterm'.
 if [ "${serial_console}" = "true" ] ; then
    {
       printf '%s\n' ''
@@ -555,6 +620,25 @@ if [ "${serial_console}" = "true" ] ; then
    } >> "${binary}/boot/grub/config.cfg"
 fi
 
+## --smbios-reader: inline the SMBIOS cmdline reader into config.cfg (grub.cfg
+## sources config.cfg first, so ${dm_smbios_extra} is set before any menuentry).
+if [ "${smbios_reader}" = "true" ] ; then
+   printf '%s\n' '' >> "${binary}/boot/grub/config.cfg"
+   cat -- "${grub_config_dir}/smbios-reader.cfg" >> "${binary}/boot/grub/config.cfg"
+fi
+
+## splash.png: substitute the branding placeholders in the SVG, then rasterize to
+## the 800x600 PNG the theme (live-theme/theme.txt) references.
+splash_svg="${workdir}/splash.svg"
+sed "s|@DIST_NAME@|${dist_pretty}|g; s|@DIST_VERSION@|${dist_version}|g" \
+   -- "${grub_config_dir}/splash.svg" > "${splash_svg}"
+rsvg-convert --format png --width 800 --height 600 \
+   --output "${binary}/boot/grub/splash.png" -- "${splash_svg}"
+
+## Substitute the two computed tokens in every staged *.cfg -- @APPEND_LIVE@ (the
+## live kernel cmdline) and @TIMEOUT@ (the menu timeout). Literal (parameter)
+## substitution only: ${iso_path} / ${dm_smbios_extra} stay unexpanded for GRUB to
+## resolve at boot.
 while IFS= read -r -d '' cfg ; do
    ## 'cat; printf x' then strip the x preserves any trailing newline that a
    ## bare command substitution would drop.
@@ -599,12 +683,32 @@ xorriso_opts+=(
    -isohybrid-gpt-basdat
 )
 
-## Optional consumer /live overlay: extra files that live beside the squashfs on
-## the ISO but not inside it (e.g. a memtest binary the menu boots directly, a
-## package manifest). Copied after the squashfs/kernel/initrd are staged.
-if [ -n "${live_overlay}" ] ; then
-   printf '%s: applying /live overlay %s\n' "${me}" "${live_overlay}" >&2
-   cp --archive -- "${live_overlay}/." "${binary}/live/"
+## memtest86+ (x86 only): staged into /live so the menu can boot it directly. It
+## comes from the BUILD HOST's /boot (1200 installs memtest86+ on amd64). The GRUB
+## entry self-hides when the file is absent, so a non-x86 target or a host without
+## memtest86+ warns and skips rather than failing the ISO. (filesystem.packages
+## was written to /live during the rootfs harvest above.)
+case "${arch}" in
+   amd64)
+      mt_bin="/boot/memtest86+x64.bin"
+      mt_efi="/boot/memtest86+x64.efi"
+      ;;
+   i386)
+      mt_bin="/boot/memtest86+ia32.bin"
+      mt_efi="/boot/memtest86+ia32.efi"
+      ;;
+   *)
+      mt_bin=""
+      mt_efi=""
+      ;;
+esac
+if [ -n "${mt_bin}" ] && [ -e "${mt_bin}" ] ; then
+   printf '%s: staging memtest86+ into /live\n' "${me}" >&2
+   cp -- "${mt_bin}" "${binary}/live/memtest.bin"
+   ## The EFI image is best-effort (older memtest86+ ships BIOS only).
+   [ ! -e "${mt_efi}" ] || cp -- "${mt_efi}" "${binary}/live/memtest.efi"
+elif [ -n "${mt_bin}" ] ; then
+   printf '%s: NOTE: memtest86+ binary %s not found; the ISO menu memtest entry will self-hide.\n' "${me}" "${mt_bin}" >&2
 fi
 
 ## Pin every staged file's mtime to SOURCE_DATE_EPOCH so the ISO is reproducible:
