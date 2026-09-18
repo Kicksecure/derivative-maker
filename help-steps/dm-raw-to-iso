@@ -42,6 +42,11 @@ export LC_ALL=C
 
 me="${BASH_SOURCE[0]##*/}"
 
+## Shared pure build-step helpers (newest-kernel-version, ...). Sibling in
+## help-steps; sourced by absolute path so it resolves regardless of CWD.
+# shellcheck source=./build-step-helpers.bsh
+source "$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )/build-step-helpers.bsh"
+
 usage() {
    cat <<EOF
 Usage: ${me} --raw <image> --output <iso> --grub-config-dir <dir> --hostname <h> [options]
@@ -429,14 +434,11 @@ fi
 
 ## 2c. Build the live initramfs.
 
-## sort -V (version sort): a plain sort is lexical (5.9 > 5.19), so an image
-## carrying more than one kernel would pick the wrong "newest" one.
-## '|| true': grep exits 1 when no vmlinuz-* matches, which under pipefail+errexit
-## would abort the assignment and make the diagnostic below dead code (bare exit 1,
-## no message). Swallow it so the '-n' guard fires with an actionable error instead.
-kernel_img="$(chroot "${rootfs}" sh -c 'ls -1 /boot' | grep '^vmlinuz-' | sort -V | tail -n 1 || true)"
-[ -n "${kernel_img}" ] || error "no /boot/vmlinuz-* kernel found in the rootfs"
-kernel_ver="${kernel_img#vmlinuz-}"
+## newest-kernel-version picks the greatest VERSION (not byte order) so an image
+## carrying more than one kernel builds dracut for the right one; empty when the
+## rootfs /boot has no vmlinuz-*.
+kernel_ver="$(newest-kernel-version "$(chroot "${rootfs}" sh -c 'ls -1 /boot')")"
+[ -n "${kernel_ver}" ] || error "no /boot/vmlinuz-* kernel found in the rootfs"
 printf '%s: building dracut-live initramfs for kernel %s\n' "${me}" "${kernel_ver}" >&2
 
 ## --no-hostonly: a portable live initramfs, not tied to this build host.

@@ -46,7 +46,7 @@ newest-kernel-version() {
    ## kernel. Prints nothing when the listing has no vmlinuz.
    local listing newest
    listing="$1"
-   newest="$(printf '%s\n' "${listing}" | grep 'vmlinuz' | sort --version-sort | tail --lines=1)" || true
+   newest="$(printf '%s\n' "${listing}" | grep '^vmlinuz-' | sort --version-sort | tail --lines=1)" || true
    printf '%s\n' "${newest#vmlinuz-}"
 }
 
