@@ -43,7 +43,7 @@ reimage_raw() {
       return 1
    fi
 
-   local dev_mapper_device fs_uuid mke2fs_config
+   local dev_mapper_device fs_uuid fs_type mke2fs_config
    local reimage_parent
    local loop_mapping_base esp_device esp_candidate
    export kpartx_only=true
@@ -78,6 +78,23 @@ reimage_raw() {
       printf '%s\n' "ERROR: ${BASH_SOURCE[0]}: could not read 'Filesystem UUID' of ${dev_mapper_device}." >&2
       return 1
    fi
+
+   ## Fail closed on a non-ext root. This step unconditionally rebuilds the
+   ## partition as ext4 (mke2fs -t ext4 below), so if the build requested another
+   ## filesystem (parse-cmd '--file-system' -> grml-debootstrap '--filesystem',
+   ## e.g. xfs/btrfs) reformatting here would SILENTLY change the type and destroy
+   ## the requested filesystem. The former dumpe2fs feature probe aborted on a
+   ## non-ext filesystem as a side effect; assert it explicitly.
+   fs_type="$(${SUDO_TO_ROOT} blkid --output value --match-tag TYPE "${dev_mapper_device}")"
+   case "${fs_type}" in
+      ext2|ext3|ext4)
+         ;;
+      *)
+         printf '%s\n' "ERROR: ${BASH_SOURCE[0]}: root filesystem of ${dev_mapper_device} is '${fs_type:-unknown}', not ext2/ext3/ext4; the reproducible reimage only rebuilds ext filesystems. Refusing to reformat." >&2
+         return 1
+         ;;
+   esac
+
    mke2fs_config="${source_code_folder_dist}/build-data/mke2fs.conf"
    if [ ! -f "${mke2fs_config}" ]; then
       printf '%s\n' "ERROR: ${BASH_SOURCE[0]}: pinned mke2fs.conf not found at ${mke2fs_config}." >&2
