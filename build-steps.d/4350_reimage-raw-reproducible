@@ -36,6 +36,25 @@ reimage_cleanup() {
    "${dist_source_help_steps_folder}"/unmount-raw 2>/dev/null || true
 }
 
+require-ext-type() {
+   ## Return 0 iff TYPE names an ext2/3/4 filesystem; otherwise print an error and
+   ## return 1. The reimage rebuilds the partition as ext4, so any other type --
+   ## or an empty/unidentifiable one (blkid could not read it) -- must fail closed
+   ## rather than be silently reformatted. Args: TYPE [DEVICE-for-the-message].
+   local fs_type device_desc
+   fs_type="$1"
+   device_desc="${2:-the root device}"
+   case "${fs_type}" in
+      ext2|ext3|ext4)
+         return 0
+         ;;
+      *)
+         printf '%s\n' "ERROR: ${device_desc} filesystem is '${fs_type:-unknown}', not ext2/ext3/ext4; the reproducible reimage only rebuilds ext filesystems. Refusing to reformat." >&2
+         return 1
+         ;;
+   esac
+}
+
 reimage_raw() {
    ## SOURCE_DATE_EPOCH is exported unconditionally by help-steps/variables.
    if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
@@ -87,17 +106,13 @@ reimage_raw() {
    ## e.g. xfs/btrfs) reformatting here would SILENTLY change the type and destroy
    ## the requested filesystem. The former dumpe2fs feature probe aborted on a
    ## non-ext filesystem as a side effect; assert it explicitly.
-   ## '|| true' for the same reason as the UUID read above: a blkid that cannot
-   ## identify the type must reach the fail-closed 'case', not abort via errexit.
+   ## '|| true': blkid exits non-zero when it cannot read a TYPE, and that empty
+   ## value must reach require-ext-type (which fails closed on it), not abort via
+   ## errexit here.
    fs_type="$(${SUDO_TO_ROOT} blkid --output value --match-tag TYPE "${dev_mapper_device}")" || true
-   case "${fs_type}" in
-      ext2|ext3|ext4)
-         ;;
-      *)
-         printf '%s\n' "ERROR: ${BASH_SOURCE[0]}: root filesystem of ${dev_mapper_device} is '${fs_type:-unknown}', not ext2/ext3/ext4; the reproducible reimage only rebuilds ext filesystems. Refusing to reformat." >&2
-         return 1
-         ;;
-   esac
+   if ! require-ext-type "${fs_type}" "${dev_mapper_device}"; then
+      return 1
+   fi
 
    mke2fs_config="${source_code_folder_dist}/build-data/mke2fs.conf"
    if [ ! -f "${mke2fs_config}" ]; then
