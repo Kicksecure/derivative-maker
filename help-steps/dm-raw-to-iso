@@ -439,6 +439,7 @@ fi
 ## rootfs /boot has no vmlinuz-*.
 kernel_ver="$(newest-kernel-version "$(chroot "${rootfs}" sh -c 'ls -1 /boot')")"
 [ -n "${kernel_ver}" ] || error "no /boot/vmlinuz-* kernel found in the rootfs"
+kernel_img="vmlinuz-${kernel_ver}"
 printf '%s: building dracut-live initramfs for kernel %s\n' "${me}" "${kernel_ver}" >&2
 
 ## --no-hostonly: a portable live initramfs, not tied to this build host.
