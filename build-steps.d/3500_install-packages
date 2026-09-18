@@ -214,10 +214,15 @@ resolve-partition-uuid() {
    ## interpreted, or 'loop0p1' also match 'loop0p10', and pick the wrong
    ## partition's UUID. Prints nothing when there is no exact match. awk
    ## '$1 == dev' compares strings and 'exit' takes the first match.
+   ##
+   ## The name is passed through the ENVIRONMENT (awk ENVIRON), not 'awk -v':
+   ## '-v' processes C escape sequences in the value (a literal '\b' would become
+   ## a backspace), whereas ENVIRON is the exact bytes.
    local partition_name
    partition_name="$1"
+   export partition_name
    lsblk --raw --noheadings --output NAME,UUID \
-      | awk -v dev="${partition_name}" '$1 == dev { print $2; exit }'
+      | awk 'BEGIN { dev = ENVIRON["partition_name"] } $1 == dev { print $2; exit }'
 }
 
 install-packages() {
