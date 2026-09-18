@@ -88,24 +88,17 @@ require-ext-type() {
 }
 
 username-plain-for-sudoers() {
-   ## True when NAME is a plain username safe to interpolate verbatim into a
-   ## sudoers rule: [A-Za-z0-9_-] with an optional SINGLE trailing '$' (a Samba
-   ## machine account, which /etc/adduser.conf NAME_REGEX
-   ## '^[a-zA-Z][a-zA-Z0-9_-]*$?$' also permits), and not the reserved word
-   ## 'ALL'. The trailing '$' is literal in the sudoers user and %group fields
-   ## (not a sudoers metacharacter), so it is stripped only for this check.
-   ## A second '$' survives the strip and is then refused by the metacharacter
-   ## class below, so only ONE trailing '$' is tolerated.
-   local candidate body
+   ## True when NAME is safe to interpolate verbatim into a sudoers rule. The
+   ## adduser.conf NAME_REGEX check is the canonical check_valid_linux_user_account_name
+   ## from helper-scripts strings.bsh (sourced by help-steps/variables, so it is
+   ## defined before any build step calls this; the dist-ai test sources it too) --
+   ## do NOT reimplement it here. It accepts [A-Za-z_][A-Za-z0-9_-]* with an
+   ## optional single trailing '$' (Samba machine account) and rejects a leading
+   ## digit/dash and every sudoers metacharacter. On top of that, reject the
+   ## sudoers reserved word 'ALL', which NAME_REGEX permits but which as a user
+   ## name ('ALL ALL=(ALL:ALL) NOPASSWD:ALL') would grant EVERY user.
+   local candidate
    candidate="$1"
-   body="${candidate%[$]}"
-   case "${body}" in
-      ''|*[!A-Za-z0-9_-]*)
-         return 1
-         ;;
-      ALL)
-         return 1
-         ;;
-   esac
-   return 0
+   [ "${candidate}" = "ALL" ] && return 1
+   check_valid_linux_user_account_name "${candidate}"
 }

@@ -455,7 +455,7 @@ sudo_setup() {
    ## 'ALL ALL=(ALL:ALL) NOPASSWD:ALL' is valid sudoers (passes visudo --check)
    ## and means EVERY user.
    if ! username-plain-for-sudoers "${USER}"; then
-      error "USER '${USER}' is not a plain username ([A-Za-z0-9_-] with an optional trailing '\$') or is the reserved word 'ALL'; refusing to write a sudoers rule."
+      error "USER '${USER}' is not a valid account name (adduser NAME_REGEX: [A-Za-z_][A-Za-z0-9_-]* with an optional trailing '\$') or is the sudoers reserved word 'ALL'; refusing to write a sudoers rule."
       return 0
    fi
 
