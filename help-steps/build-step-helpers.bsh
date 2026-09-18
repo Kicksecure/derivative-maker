@@ -94,11 +94,19 @@ username-plain-for-sudoers() {
    ## defined before any build step calls this; the dist-ai test sources it too) --
    ## do NOT reimplement it here. It accepts [A-Za-z_][A-Za-z0-9_-]* with an
    ## optional single trailing '$' (Samba machine account) and rejects a leading
-   ## digit/dash and every sudoers metacharacter. On top of that, reject the
-   ## sudoers reserved word 'ALL', which NAME_REGEX permits but which as a user
-   ## name ('ALL ALL=(ALL:ALL) NOPASSWD:ALL') would grant EVERY user.
-   local candidate
+   ## digit/dash and every sudoers metacharacter.
+   ##
+   ## On top of NAME_REGEX, reject a sudoers UPPERCASE ALIAS token
+   ## ([A-Z][A-Z0-9_]*): sudoers parses a bare all-uppercase word in a user field
+   ## as an alias REFERENCE, not a literal user. 'ALL' then grants EVERY user
+   ## ('ALL ALL=(ALL:ALL) NOPASSWD:ALL' is valid sudoers), and 'BUILD'/'ROOT'/...
+   ## become undefined-alias references that make visudo --strict abort the build
+   ## with a confusing error instead of this gate's clear rejection. A name with
+   ## any lowercase letter, '-', or trailing '$' is a real user, left to NAME_REGEX.
+   local candidate LC_ALL=C
    candidate="$1"
-   [ "${candidate}" = "ALL" ] && return 1
+   if [[ "${candidate}" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
+      return 1
+   fi
    check_valid_linux_user_account_name "${candidate}"
 }
