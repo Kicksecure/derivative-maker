@@ -191,6 +191,17 @@ if [ "$(readlink -f -- "${raw}")" = "$(readlink -f -- "${output}" 2>/dev/null)" 
    error "--output must not be the same file as --raw"
 fi
 [ -n "${dist_hostname}" ] || error "--hostname is required (see --help)"
+## --hostname feeds the live kernel cmdline (live-config.hostname=) and is spliced
+## into the GRUB menu unquoted, so restrict it like --label: a space would split
+## the cmdline into extra parameters, and a newline would inject GRUB commands
+## into the boot menu.
+case "${dist_hostname}" in *[!A-Za-z0-9.-]*) error "--hostname must be [A-Za-z0-9.-] with no spaces (it is spliced into the kernel cmdline and the GRUB menu)" ;; esac
+
+## --dist-pretty / --dist-version are substituted into the splash SVG; forbid the
+## XML-breaking characters and any control/whitespace weirdness (they are product
+## branding, not free text).
+case "${dist_pretty}" in *[!A-Za-z0-9\ ._-]*) error "--dist-pretty must be [A-Za-z0-9 ._-] (spaces allowed)" ;; esac  ## backslash-space = literal space in the bracket
+case "${dist_version}" in *[!A-Za-z0-9._-]*) error "--dist-version must be [A-Za-z0-9._-]" ;; esac
 
 if [ -z "${arch}" ] ; then
    require_cmd dpkg
@@ -251,8 +262,8 @@ done
 
 ## Dependency check up front (fail loud). Only HOST tools here. The GRUB modules,
 ## unicode font and signed EFI loaders are taken from the TARGET ROOTFS (checked
-## after the rootfs is copied out). grub-mkconfig and the /etc/grub.d scripts run
-## in the chroot (the rootfs ships them), so they are not host requirements.
+## after the rootfs is copied out). The /etc/grub.d harvest scripts (44_kb_layout)
+## run in the chroot (the rootfs ships them), so they are not host requirements.
 require_cmd xorriso grub-mkimage mkfs.msdos mmd mcopy mksquashfs cp find touch stat chroot mount umount kpartx losetup safe-rm dpkg-query rsvg-convert sed grep
 
 ## Work directory + teardown. Track loop/kpartx maps and mounts and tear them down
@@ -357,8 +368,7 @@ for api in /dev /dev/pts /proc /sys /run ; do
    mounts+=( "${target}" )
 done
 
-## 2a. Harvest the things that can only come from inside the image, while
-## /etc/fstab is still intact (grub-mkconfig reads it).
+## 2a. Harvest the things that can only come from inside the image.
 ## Package manifest -> the ISO's /live/filesystem.packages (host dpkg-query
 ## reading the rootfs db; no chroot needed).
 dpkg-query --admindir="${rootfs}/var/lib/dpkg" --show > "${binary}/live/filesystem.packages"
@@ -373,33 +383,39 @@ fi
 
 ## Kernel-command-line hardening (mitigations, slab_nomerge, rd.shell=0,
 ## rd.emergency=halt, debugfs=off, ...) that security-misc sets via
-## /etc/default/grub.d: grub-mkconfig emits it on the disk 'linux' line, but the
-## live path has none, so without this scrape the ISO boots UNHARDENED.
-grub_cfg_output="$(chroot "${rootfs}" grub-mkconfig 2>/dev/null)" || true
-linux_lines="$(printf '%s\n' "${grub_cfg_output}" | grep -E '^[[:space:]]*linux[[:space:]]')" || true
-rootfs_linux_line="$(printf '%s\n' "${linux_lines}" | head -n1)" || true
-## Reduce the 'linux' line to the hardening params by token content, not a
-## positional cut: 1) drop indent + 'linux' + kernel path; 2) drop the disk
-## 'root=' (the live entry sets root=live:CDLABEL=); 3) drop a standalone 'ro';
-## 4) drop the literal '${dm_smbios_extra}' (added separately below); collapse+trim.
-cmdline_params="$(printf '%s' "${rootfs_linux_line}" | sed -E 's/^[[:space:]]*linux[[:space:]]+[^[:space:]]+[[:space:]]+//')"
-cmdline_no_root="$(printf '%s' "${cmdline_params}" | sed -E 's/(^|[[:space:]])root=[^[:space:]]*/ /g')"
-rootfs_kernel_hardening="$(printf '%s' "${cmdline_no_root}" | sed -E 's/(^|[[:space:]])ro([[:space:]]|$)/ /g')"
+## /etc/default/grub.d: the live path has none, so without it the ISO boots
+## UNHARDENED. Read GRUB_CMDLINE_LINUX(_DEFAULT) the way grub-mkconfig assembles
+## it -- source /etc/default/grub then the grub.d drop-ins -- rather than scraping
+## grub-mkconfig OUTPUT: grub-mkconfig runs 'grub-probe /', which FAILS on the
+## copied rootfs (its workdir is a tmpfs with no backing block device) and would
+## also pull in the disk's root=/rootflags. Sourcing yields exactly the hardening;
+## root=/ro/rootflags come from 10_linux, not from GRUB_CMDLINE_LINUX.
+## The '${...}' expand in the INNER chroot 'sh', not the outer bash -- keep single-quoted.
+# shellcheck disable=SC2016
+rootfs_kernel_hardening="$(chroot "${rootfs}" sh -c '
+   GRUB_CMDLINE_LINUX=""
+   GRUB_CMDLINE_LINUX_DEFAULT=""
+   [ -e /etc/default/grub ] && . /etc/default/grub
+   for grub_d_file in /etc/default/grub.d/*.cfg ; do
+      [ -e "${grub_d_file}" ] && . "${grub_d_file}"
+   done
+   printf "%s %s" "${GRUB_CMDLINE_LINUX}" "${GRUB_CMDLINE_LINUX_DEFAULT}"
+' 2>/dev/null)" || rootfs_kernel_hardening=""
+## Drop the literal ${dm_smbios_extra} the disk grub.d appends under its own reader
+## option (the ISO adds its OWN, below, only under --smbios-reader); collapse+trim.
 # shellcheck disable=SC2016
 rootfs_kernel_hardening="${rootfs_kernel_hardening//'${dm_smbios_extra}'/}"
 rootfs_kernel_hardening="$(printf '%s' "${rootfs_kernel_hardening}" | tr -s ' ')"
 rootfs_kernel_hardening="${rootfs_kernel_hardening#"${rootfs_kernel_hardening%%[![:space:]]*}"}"
 rootfs_kernel_hardening="${rootfs_kernel_hardening%"${rootfs_kernel_hardening##*[![:space:]]}"}"
-## FAIL CLOSED on an EMPTY result: a dm image is hardened, so an empty scrape means
-## grub-mkconfig failed or the extraction broke. Silently omitting the hardening
-## (shipping an unhardened live ISO with no error) is exactly the failure this
-## scrape exists to prevent, so refuse rather than warn.
+## FAIL CLOSED on an EMPTY result: a dm image is hardened, so empty means the grub
+## defaults could not be read. Silently shipping an unhardened live ISO is exactly
+## the failure this exists to prevent, so refuse rather than warn.
 if [ -z "${rootfs_kernel_hardening}" ] ; then
-   error "kernel-hardening scrape produced NO parameters (grub-mkconfig output empty or unparsable); refusing to build an unhardened live ISO"
+   error "no kernel-hardening parameters found in /etc/default/grub[.d] of the rootfs; refusing to build an unhardened live ISO"
 fi
 
-## 2b. Neutralize /etc/fstab + /etc/crypttab (done AFTER the harvest above so
-## grub-mkconfig saw the real fstab): a DISK image mounts its own partitions
+## 2b. Neutralize /etc/fstab + /etc/crypttab: a DISK image mounts its own partitions
 ## (root by UUID, /boot/efi, swap) and crypto volumes, none of which exist in a
 ## live boot -- local-fs.target would fail and drop the guest to emergency mode.
 ## The live root is the squashfs via dracut-live; an empty fstab is what
@@ -628,10 +644,15 @@ if [ "${smbios_reader}" = "true" ] ; then
 fi
 
 ## splash.png: substitute the branding placeholders in the SVG, then rasterize to
-## the 800x600 PNG the theme (live-theme/theme.txt) references.
+## the 800x600 PNG the theme (live-theme/theme.txt) references. Bash string
+## replace, NOT 'sed s|...|${value}|' -- the value must not be interpreted as a
+## sed program (a '|' would break it, a crafted value could reach sed's 'e' flag).
 splash_svg="${workdir}/splash.svg"
-sed "s|@DIST_NAME@|${dist_pretty}|g; s|@DIST_VERSION@|${dist_version}|g" \
-   -- "${grub_config_dir}/splash.svg" > "${splash_svg}"
+splash_content="$(cat -- "${grub_config_dir}/splash.svg"; printf x)"
+splash_content="${splash_content%x}"
+splash_content="${splash_content//@DIST_NAME@/${dist_pretty}}"
+splash_content="${splash_content//@DIST_VERSION@/${dist_version}}"
+printf '%s' "${splash_content}" > "${splash_svg}"
 rsvg-convert --format png --width 800 --height 600 \
    --output "${binary}/boot/grub/splash.png" -- "${splash_svg}"
 
