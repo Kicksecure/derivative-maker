@@ -73,7 +73,9 @@ reimage_raw() {
    ## below, so the reimage is host-independent BY CONSTRUCTION: a different build
    ## host's /etc/mke2fs.conf cannot change the result. (The original's own
    ## parameters were themselves host-dependent, which is what this closes.)
-   fs_uuid="$(${SUDO_TO_ROOT} blkid --output value --match-tag UUID "${dev_mapper_device}")"
+   ## '|| true': blkid exits non-zero when the tag is absent, and this standalone
+   ## assignment would otherwise trip errexit before the empty-check reports it.
+   fs_uuid="$(${SUDO_TO_ROOT} blkid --output value --match-tag UUID "${dev_mapper_device}")" || true
    if [ -z "${fs_uuid}" ]; then
       printf '%s\n' "ERROR: ${BASH_SOURCE[0]}: could not read 'Filesystem UUID' of ${dev_mapper_device}." >&2
       return 1
@@ -85,7 +87,9 @@ reimage_raw() {
    ## e.g. xfs/btrfs) reformatting here would SILENTLY change the type and destroy
    ## the requested filesystem. The former dumpe2fs feature probe aborted on a
    ## non-ext filesystem as a side effect; assert it explicitly.
-   fs_type="$(${SUDO_TO_ROOT} blkid --output value --match-tag TYPE "${dev_mapper_device}")"
+   ## '|| true' for the same reason as the UUID read above: a blkid that cannot
+   ## identify the type must reach the fail-closed 'case', not abort via errexit.
+   fs_type="$(${SUDO_TO_ROOT} blkid --output value --match-tag TYPE "${dev_mapper_device}")" || true
    case "${fs_type}" in
       ext2|ext3|ext4)
          ;;
