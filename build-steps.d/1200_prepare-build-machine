@@ -499,7 +499,11 @@ sudo_setup() {
 ## Avoid 'sudo: a password is required' errors during the build process.
 ${USER} ALL=(ALL:ALL) NOPASSWD:ALL
 
-Defaults:%${USER} runcwd=*
+## Target the USER, not a '%'-prefixed GROUP: a same-named per-user group only
+## exists under the Debian default (USERGROUPS=yes); with USERGROUPS=no or a
+## directory-joined primary group the '%${USER}' form matches no group and the
+## runcwd override is silently a no-op (later 'sudo -D' then fails).
+Defaults:${USER} runcwd=*
 
 ## Does not work:
 #Defaults:%${USER} runcwd=${HOMEVAR_VBOX_TEMP}
