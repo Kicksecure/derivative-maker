@@ -22,7 +22,7 @@ cd help-steps
 
 source pre
 source variables
-source build-step-helpers.bsh
+source "${MYDIR}/../help-steps/build-step-helpers.bsh"
 
 ## Rebuild the ext4 root filesystem deterministically.
 

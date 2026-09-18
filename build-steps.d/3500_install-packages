@@ -27,7 +27,7 @@ cd help-steps
 
 source pre
 source variables
-source build-step-helpers.bsh
+source "${MYDIR}/../help-steps/build-step-helpers.bsh"
 
 ## Debugging function.
 apt_get_parse_unmet_dependency() {
