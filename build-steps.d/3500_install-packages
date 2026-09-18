@@ -209,20 +209,21 @@ pkg-list-install() {
 
 resolve-partition-uuid() {
    ## Print the UUID of the partition whose NAME column exactly equals the given
-   ## name, matched as a LITERAL whole field (never a regex): the name comes from
-   ## grub-probe output, so a regex/substring match would let a metacharacter be
-   ## interpreted, or 'loop0p1' also match 'loop0p10', and pick the wrong
-   ## partition's UUID. Prints nothing when there is no exact match. awk
-   ## '$1 == dev' compares strings and 'exit' takes the first match.
-   ##
-   ## The name is passed through the ENVIRONMENT (awk ENVIRON), not 'awk -v':
-   ## '-v' processes C escape sequences in the value (a literal '\b' would become
-   ## a backspace), whereas ENVIRON is the exact bytes.
-   local partition_name
+   ## name, compared as a LITERAL whole string (never a regex, glob or escape):
+   ## the name comes from grub-probe output, so any interpretation could pick the
+   ## wrong partition ('loop0p1' vs 'loop0p10', a metacharacter, an escape). The
+   ## read loop keeps it literal: '[ x = y ]' is plain string equality and
+   ## 'read -r' does not process backslashes. Prints nothing when there is no
+   ## exact match; process substitution (not a pipe) keeps the loop in this shell
+   ## so 'return' works.
+   local partition_name name uuid
    partition_name="$1"
-   export partition_name
-   lsblk --raw --noheadings --output NAME,UUID \
-      | awk 'BEGIN { dev = ENVIRON["partition_name"] } $1 == dev { print $2; exit }'
+   while read -r name uuid; do
+      if [ "${name}" = "${partition_name}" ]; then
+         printf '%s\n' "${uuid}"
+         return 0
+      fi
+   done < <(lsblk --raw --noheadings --output NAME,UUID)
 }
 
 install-packages() {
