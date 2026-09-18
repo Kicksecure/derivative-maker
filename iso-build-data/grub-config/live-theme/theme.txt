@@ -1,3 +1,9 @@
+## Migrated from Debian live-build (share/bootloaders/grub-pc/live-theme/theme.txt);
+## adapted for derivative-maker.
+## Copyright (C) 2016 - 2020 The Debian Live team
+## Copyright (C) 2006 - 2015 Daniel Baumann <mail@daniel-baumann.ch>
+## License: GPL-3+; see the file COPYING for copying conditions.
+
 desktop-image: "../splash.png"
 title-color: "#ffffff"
 title-font: "Unifont Regular 16"

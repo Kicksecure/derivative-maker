@@ -1,7 +1,10 @@
 #!/bin/bash
 
 ## Copyright (C) 2026 - 2026 ENCRYPTED SUPPORT LLC <adrelanos@whonix.org>
-## See the file COPYING for copying conditions.
+## Copyright (C) 2016 - 2020 The Debian Live team
+## Copyright (C) 2006 - 2015 Daniel Baumann <mail@daniel-baumann.ch>
+## Derived from and inspired by Debian live-build's hybrid-ISO packaging.
+## License: GPL-3+; see the file COPYING for copying conditions.
 
 ## Convert the raw disk image from 3200_create-raw-image into a bootable hybrid
 ## ISO via 'help-steps/dm-raw-to-iso' (BIOS + UEFI + Secure Boot + loopback,
