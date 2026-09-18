@@ -22,6 +22,7 @@ cd help-steps
 
 source pre
 source variables
+source build-step-helpers.bsh
 
 ## Rebuild the ext4 root filesystem deterministically.
 
@@ -34,25 +35,6 @@ reimage_cleanup() {
       ${SUDO_TO_ROOT} safe-rm --one-file-system --recursive --force -- "${reimage_tree}" 2>/dev/null || true
    fi
    "${dist_source_help_steps_folder}"/unmount-raw 2>/dev/null || true
-}
-
-require-ext-type() {
-   ## Return 0 iff TYPE names an ext2/3/4 filesystem; otherwise print an error and
-   ## return 1. The reimage rebuilds the partition as ext4, so any other type --
-   ## or an empty/unidentifiable one (blkid could not read it) -- must fail closed
-   ## rather than be silently reformatted. Args: TYPE [DEVICE-for-the-message].
-   local fs_type device_desc
-   fs_type="$1"
-   device_desc="${2:-the root device}"
-   case "${fs_type}" in
-      ext2|ext3|ext4)
-         return 0
-         ;;
-      *)
-         printf '%s\n' "ERROR: ${device_desc} filesystem is '${fs_type:-unknown}', not ext2/ext3/ext4; the reproducible reimage only rebuilds ext filesystems. Refusing to reformat." >&2
-         return 1
-         ;;
-   esac
 }
 
 reimage_raw() {

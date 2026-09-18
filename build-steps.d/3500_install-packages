@@ -27,6 +27,7 @@ cd help-steps
 
 source pre
 source variables
+source build-step-helpers.bsh
 
 ## Debugging function.
 apt_get_parse_unmet_dependency() {
@@ -204,57 +205,6 @@ pkg-list-install() {
       return 0
    else
       pkg-install ${pkg_install_list}
-   fi
-}
-
-resolve-partition-uuid() {
-   ## Print the UUID of the partition whose NAME column exactly equals the given
-   ## name, compared as a LITERAL whole string (never a regex, glob or escape):
-   ## the name comes from grub-probe output, so any interpretation could pick the
-   ## wrong partition ('loop0p1' vs 'loop0p10', a metacharacter, an escape).
-   ## Capture lsblk into a variable FIRST so errexit aborts if it fails, then loop
-   ## over a here-string (no subshell, so 'return' works). '[ x = y ]' is plain
-   ## string equality and 'read -r' keeps backslashes literal. Prints nothing when
-   ## there is no exact match.
-   local partition_name lsblk_output name uuid
-   partition_name="$1"
-   lsblk_output="$(lsblk --raw --noheadings --output NAME,UUID)"
-   while read -r name uuid; do
-      if [ "${name}" = "${partition_name}" ]; then
-         printf '%s\n' "${uuid}"
-         return 0
-      fi
-   done <<< "${lsblk_output}"
-}
-
-newest-kernel-version() {
-   ## Print the version of the NEWEST kernel from a newline-separated /boot
-   ## listing (the argument), i.e. the vmlinuz-<version> with the greatest
-   ## VERSION order. Not byte order: under LC_ALL=C 'vmlinuz-6.1.0-9' sorts
-   ## before 'vmlinuz-6.12.0-1' ('.' < digit), so a post-upgrade /boot with two
-   ## kernels would otherwise pick the OLD one and build dracut for the wrong
-   ## kernel. Prints nothing when the listing has no vmlinuz.
-   local listing newest
-   listing="$1"
-   newest="$(printf '%s\n' "${listing}" | grep 'vmlinuz' | sort --version-sort | tail --lines=1)" || true
-   printf '%s\n' "${newest#vmlinuz-}"
-}
-
-select-grub-probe-device() {
-   ## Choose the device for the root= fixup from the '/' (main) and '/boot' probe
-   ## results. They share the partition in this build, so they normally match;
-   ## when they differ prefer the /boot probe, but ONLY if it is non-empty -- a
-   ## transient probe failure ('|| true' -> "") must not be chosen over a valid
-   ## root probe, or the caller spuriously aborts a good build. Args: MAIN BOOT.
-   local main_device boot_device
-   main_device="$1"
-   boot_device="$2"
-   if [ "${main_device}" = "${boot_device}" ]; then
-      printf '%s\n' "${main_device}"
-   elif [ -n "${boot_device}" ]; then
-      printf '%s\n' "${boot_device}"
-   else
-      printf '%s\n' "${main_device}"
    fi
 }
 
