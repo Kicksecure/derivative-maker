@@ -211,19 +211,20 @@ resolve-partition-uuid() {
    ## Print the UUID of the partition whose NAME column exactly equals the given
    ## name, compared as a LITERAL whole string (never a regex, glob or escape):
    ## the name comes from grub-probe output, so any interpretation could pick the
-   ## wrong partition ('loop0p1' vs 'loop0p10', a metacharacter, an escape). The
-   ## read loop keeps it literal: '[ x = y ]' is plain string equality and
-   ## 'read -r' does not process backslashes. Prints nothing when there is no
-   ## exact match; process substitution (not a pipe) keeps the loop in this shell
-   ## so 'return' works.
-   local partition_name name uuid
+   ## wrong partition ('loop0p1' vs 'loop0p10', a metacharacter, an escape).
+   ## Capture lsblk into a variable FIRST so errexit aborts if it fails, then loop
+   ## over a here-string (no subshell, so 'return' works). '[ x = y ]' is plain
+   ## string equality and 'read -r' keeps backslashes literal. Prints nothing when
+   ## there is no exact match.
+   local partition_name lsblk_output name uuid
    partition_name="$1"
+   lsblk_output="$(lsblk --raw --noheadings --output NAME,UUID)"
    while read -r name uuid; do
       if [ "${name}" = "${partition_name}" ]; then
          printf '%s\n' "${uuid}"
          return 0
       fi
-   done < <(lsblk --raw --noheadings --output NAME,UUID)
+   done <<< "${lsblk_output}"
 }
 
 install-packages() {
