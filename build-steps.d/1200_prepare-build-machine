@@ -442,27 +442,44 @@ However, if signing keys are missing for redistributable builds, then the keys s
    "${dist_source_help_steps_folder}/signing-key-test" "$@"
 }
 
+username-plain-for-sudoers() {
+   ## True when NAME is a plain username safe to interpolate verbatim into a
+   ## sudoers rule: [A-Za-z0-9_-] with an optional SINGLE trailing '$' (a Samba
+   ## machine account, which /etc/adduser.conf NAME_REGEX
+   ## '^[a-zA-Z][a-zA-Z0-9_-]*$?$' also permits), and not the reserved word
+   ## 'ALL'. The trailing '$' is literal in the sudoers user and %group fields
+   ## (not a sudoers metacharacter), so it is stripped only for this check.
+   ## A second '$' survives the strip and is then refused by the metacharacter
+   ## class below, so only ONE trailing '$' is tolerated.
+   local candidate body
+   candidate="$1"
+   body="${candidate%[$]}"
+   case "${body}" in
+      ''|*[!A-Za-z0-9_-]*)
+         return 1
+         ;;
+      ALL)
+         return 1
+         ;;
+   esac
+   return 0
+}
+
 sudo_setup() {
    if [ "${USER:-}" = "" ]; then
       error "Environment variable USER cannot be empty! Function sudo_setup failed!"
       return 0
    fi
 
-   ## $USER is interpolated verbatim into a sudoers rule below. A value that is not a
-   ## plain username -- the sudoers reserved word 'ALL', or a metacharacter (space,
-   ## '%', '=', ',', ':') -- would grant far more than intended: 'ALL ALL=(ALL:ALL)
-   ## NOPASSWD:ALL' is valid sudoers (passes visudo --check) and means EVERY user.
-   ## Refuse anything that is not a bare [A-Za-z0-9_-] username, and 'ALL' itself.
-   case "${USER}" in
-      *[!A-Za-z0-9_-]*)
-         error "USER '${USER}' is not a plain username ([A-Za-z0-9_-]); refusing to write a sudoers rule."
-         return 0
-         ;;
-      ALL)
-         error "USER must not be the sudoers reserved word 'ALL'; refusing to write a sudoers rule."
-         return 0
-         ;;
-   esac
+   ## $USER is interpolated verbatim into the sudoers rule below. A value that is
+   ## not a plain username -- the sudoers reserved word 'ALL', or a metacharacter
+   ## (space, '%', '=', ',', ':') -- would grant far more than intended:
+   ## 'ALL ALL=(ALL:ALL) NOPASSWD:ALL' is valid sudoers (passes visudo --check)
+   ## and means EVERY user.
+   if ! username-plain-for-sudoers "${USER}"; then
+      error "USER '${USER}' is not a plain username ([A-Za-z0-9_-] with an optional trailing '\$') or is the reserved word 'ALL'; refusing to write a sudoers rule."
+      return 0
+   fi
 
    ## Fix 'sudo' error:
    ## > sudo: you are not permitted to use the -D option
