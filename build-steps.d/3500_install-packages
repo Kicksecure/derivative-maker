@@ -227,6 +227,37 @@ resolve-partition-uuid() {
    done <<< "${lsblk_output}"
 }
 
+newest-kernel-version() {
+   ## Print the version of the NEWEST kernel from a newline-separated /boot
+   ## listing (the argument), i.e. the vmlinuz-<version> with the greatest
+   ## VERSION order. Not byte order: under LC_ALL=C 'vmlinuz-6.1.0-9' sorts
+   ## before 'vmlinuz-6.12.0-1' ('.' < digit), so a post-upgrade /boot with two
+   ## kernels would otherwise pick the OLD one and build dracut for the wrong
+   ## kernel. Prints nothing when the listing has no vmlinuz.
+   local listing newest
+   listing="$1"
+   newest="$(printf '%s\n' "${listing}" | grep 'vmlinuz' | sort --version-sort | tail --lines=1)" || true
+   printf '%s\n' "${newest#vmlinuz-}"
+}
+
+select-grub-probe-device() {
+   ## Choose the device for the root= fixup from the '/' (main) and '/boot' probe
+   ## results. They share the partition in this build, so they normally match;
+   ## when they differ prefer the /boot probe, but ONLY if it is non-empty -- a
+   ## transient probe failure ('|| true' -> "") must not be chosen over a valid
+   ## root probe, or the caller spuriously aborts a good build. Args: MAIN BOOT.
+   local main_device boot_device
+   main_device="$1"
+   boot_device="$2"
+   if [ "${main_device}" = "${boot_device}" ]; then
+      printf '%s\n' "${main_device}"
+   elif [ -n "${boot_device}" ]; then
+      printf '%s\n' "${boot_device}"
+   else
+      printf '%s\n' "${main_device}"
+   fi
+}
+
 install-packages() {
    exception_handler_setup "exception_handler_unchroot_unmount" ERR INT TERM
 
@@ -578,17 +609,7 @@ ${dist_build_script_skip_package_install}${reset}"
       ## For documentation on how to install dracut in a chroot, see:
       ## https://github.com/dracutdevs/dracut/issues/1596
 
-      KERNELIMG="$(chroot_run ls -1 -- "/boot/")"
-      KERNELIMG="$(printf "%s\n" "${KERNELIMG}" | grep "vmlinuz")"
-      ## Pick the NEWEST kernel (version-sort), matching what grub-mkconfig boots.
-      ## A plain 'sed -n 1p' takes the byte-first line, and under LC_ALL=C
-      ## 'vmlinuz-6.1.0-9' sorts before 'vmlinuz-6.12.0-1' ('.' < digit), so a
-      ## post-upgrade /boot with two kernels would build dracut for the OLD one.
-      KERNELIMG="$(printf "%s\n" "${KERNELIMG}" | sort --version-sort | tail --lines=1)"
-      ## example KERNELIMG:
-      ## vmlinuz-6.1.0-9-amd64
-
-      KERNELVER="${KERNELIMG#vmlinuz-}"
+      KERNELVER="$(newest-kernel-version "$(chroot_run ls -1 -- "/boot/")")"
       ## example KERNELVER:
       ## 6.1.0-9-amd64
 
@@ -653,17 +674,7 @@ ${dist_build_script_skip_package_install}${reset}"
    ## Sanity test.
    if chroot_run grep --quiet "root=/dev/mapper" /boot/grub/grub.cfg ; then
       ## Attempt to fix /dev/mapper issue.
-      ## '/' and '/boot' share the partition here, so the outputs normally match.
-      ## When they differ, prefer the /boot probe -- but only if it is non-empty:
-      ## a transient probe failure ('|| true' -> "") must not be chosen over a
-      ## valid root probe, or the check below spuriously aborts a good build.
-      if [ "${grub_probe_main_device_output}" = "${grub_probe_boot_device_output}" ]; then
-        grub_probe_target_device="${grub_probe_main_device_output}"
-      elif [ -n "${grub_probe_boot_device_output}" ]; then
-        grub_probe_target_device="${grub_probe_boot_device_output}"
-      else
-        grub_probe_target_device="${grub_probe_main_device_output}"
-      fi
+      grub_probe_target_device="$(select-grub-probe-device "${grub_probe_main_device_output}" "${grub_probe_boot_device_output}")"
       if ! [[ "${grub_probe_target_device}" =~ /dev/mapper ]]; then
         error '/boot/grub/grub.cfg contains root=/dev/mapper and cannot find proper boot device - image most likely unbootable!'
       fi
