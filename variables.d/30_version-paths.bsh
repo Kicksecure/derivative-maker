@@ -104,6 +104,11 @@ fi
 ## Single sed invocation with alternation instead of three pipelines.
 dist_build_version="$(printf "%s\n" "${dist_build_version}" | sed -E "s#-(developers-only|testers-only|stable)##g")"
 
+## Validate once, where it is finalized: help-steps/dm-raw-to-iso substitutes it
+## into the boot splash and it appears in image filenames, so restrict it to
+## [A-Za-z0-9._-] (no spaces or splash-breaking characters).
+case "${dist_build_version}" in ''|*[!A-Za-z0-9._-]*) error "dist_build_version must be non-empty and [A-Za-z0-9._-] (no spaces)." ;; esac
+
 ## Using `export`, so 70_log_build_version can read it.
 export dist_build_version
 

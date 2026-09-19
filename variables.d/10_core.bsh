@@ -619,6 +619,17 @@ fi
 export project_clearnet
 export dist_build_type
 
+## Validate the branding/identity vars once, where they are resolved, so every
+## consumer can trust them -- notably help-steps/dm-raw-to-iso, which splices
+## them UNQUOTED into the ISO GRUB menu, the live kernel cmdline
+## (live-config.hostname=) and the boot splash: a space or newline would split
+## the cmdline or inject GRUB commands. dist_build_type_short is ALSO the ISO9660
+## volume id and the root=live:CDLABEL= value (<=32, no spaces).
+case "${dist_build_hostname}" in ''|*[!A-Za-z0-9.-]*) error "dist_build_hostname must be non-empty and [A-Za-z0-9.-] with no spaces." ;; esac
+case "${dist_build_type_short}" in ''|*[!A-Za-z0-9_.-]*) error "dist_build_type_short must be non-empty and [A-Za-z0-9_.-] with no spaces." ;; esac
+[ "${#dist_build_type_short}" -le 32 ] || error "dist_build_type_short too long (max 32 characters; it is the ISO9660 volume id)."
+case "${dist_build_type_short_pretty}" in ''|*[!A-Za-z0-9\ ._-]*) error "dist_build_type_short_pretty must be non-empty and [A-Za-z0-9 ._-] (spaces allowed)." ;; esac
+
 ## example dist_build_desktop_lowercase:
 ## lxqt
 ## Bash's lowercase expansion ',,' refuses an unset var under

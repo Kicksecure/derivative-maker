@@ -195,18 +195,10 @@ done
 if [ "$(readlink -f -- "${raw}")" = "$(readlink -f -- "${output}" 2>/dev/null)" ] ; then
    error "--output must not be the same file as --raw"
 fi
-[ -n "${dist_hostname}" ] || error "--hostname is required (see --help)"
-## --hostname feeds the live kernel cmdline (live-config.hostname=) and is spliced
-## into the GRUB menu unquoted, so restrict it like --label: a space would split
-## the cmdline into extra parameters, and a newline would inject GRUB commands
-## into the boot menu.
-case "${dist_hostname}" in *[!A-Za-z0-9.-]*) error "--hostname must be [A-Za-z0-9.-] with no spaces (it is spliced into the kernel cmdline and the GRUB menu)" ;; esac
-
-## --dist-pretty / --dist-version are substituted into the splash SVG; forbid the
-## XML-breaking characters and any control/whitespace weirdness (they are product
-## branding, not free text).
-case "${dist_pretty}" in *[!A-Za-z0-9\ ._-]*) error "--dist-pretty must be [A-Za-z0-9 ._-] (spaces allowed)" ;; esac  ## backslash-space = literal space in the bracket
-case "${dist_version}" in *[!A-Za-z0-9._-]*) error "--dist-version must be [A-Za-z0-9._-]" ;; esac
+## dist_hostname / dist_pretty / dist_version / label are branding+identity build
+## variables validated at their resolution in variables.d (10_core / 30_version-paths)
+## and passed here by the sole caller, 4310_convert-raw-to-iso; this root helper
+## trusts them (it is not a standalone tool). See --help for the arg contract.
 
 if [ -z "${arch}" ] ; then
    require_cmd dpkg
@@ -215,29 +207,15 @@ fi
 
 case "${arch}" in amd64|i386|arm64|armhf) true ;; *) error "unsupported --arch '${arch}' (supported: amd64, i386, arm64, armhf)" ;; esac
 
-## --label becomes BOTH the ISO9660 volume id and the root=live:CDLABEL= value the
-## initramfs searches for; a space would split the kernel cmdline and desync the two,
-## and an empty label makes xorriso invent a volume id the cmdline does not match.
-case "${label}" in ''|*[!A-Za-z0-9_.-]*) error "--label must be 1-32 chars from [A-Za-z0-9_.-] with no spaces (it is the ISO volume id and the root=live:CDLABEL= value)" ;; esac
-[ "${#label}" -le 32 ] || error "--label too long (max 32 characters for an ISO9660 volume id)"
+## label (the ISO9660 volume id and the root=live:CDLABEL= value) is validated in
+## variables.d as dist_build_type_short; trusted here.
 
+## SOURCE_DATE_EPOCH is validated + normalized in variables.d (source_date_epoch_valid)
+## and passed as --source-date-epoch; the fallback (a standalone raw-image mtime) is
+## itself a clean integer. Just export it for the reproducible squashfs/xorriso.
 if [ -z "${source_date_epoch}" ] ; then
    source_date_epoch="$(stat -c %Y -- "${raw}")"
 fi
-case "${source_date_epoch}" in ''|*[!0-9]*) error "--source-date-epoch must be a non-negative integer" ;; esac
-## Normalize to base 10: a value with a leading zero (e.g. '08') is later used in
-## arithmetic, where bash would read it as octal and abort ('08: value too great
-## for base'). 10# forces decimal and strips the leading zeros here, once.
-## $(( )) SILENTLY WRAPS on 64-bit overflow (2^64 -> 0 -> a 1970 build; 2^63 ->
-## negative), so verify the result round-trips against the leading-zero-stripped
-## input and error out rather than corrupt SOURCE_DATE_EPOCH.
-source_date_epoch_normalized="$(( 10#${source_date_epoch} ))"
-source_date_epoch_stripped="${source_date_epoch#"${source_date_epoch%%[!0]*}"}"
-[ -n "${source_date_epoch_stripped}" ] || source_date_epoch_stripped=0
-if [ "${source_date_epoch_normalized}" -lt 0 ] || [ "${source_date_epoch_normalized}" != "${source_date_epoch_stripped}" ] ; then
-   error "--source-date-epoch '${source_date_epoch}' is out of range (overflows a 64-bit integer)"
-fi
-source_date_epoch="${source_date_epoch_normalized}"
 export SOURCE_DATE_EPOCH="${source_date_epoch}"
 
 ## Per-arch GRUB platform / EFI naming, matching live-build's efi-image mapping.
