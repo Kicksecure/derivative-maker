@@ -96,8 +96,14 @@ source_date_epoch_valid() {
 ## (dist_build_hostname, dist_build_type_short[_pretty], dist_build_version), which
 ## are spliced unquoted into the ISO GRUB menu / live kernel cmdline / splash --
 ## so a space or newline must be refused. $2 is a hardcoded class from the caller,
-## never external input. 'return', never 'exit'.
+## never external input. It is a glob bracket char-class, so a literal ']' in it
+## must be placed FIRST (POSIX). An empty class matches nothing, so any non-empty
+## $1 is refused rather than misparsed as an unterminated bracket. 'return', never
+## 'exit'.
 value_charset_ok() {
+   if [ -z "$2" ]; then
+      return 1
+   fi
    ## shellcheck disable=SC2254 # $2 is intentionally the case-glob char-class
    case "$1" in
       ''|*[!$2]*)
