@@ -106,3 +106,15 @@ value_charset_ok() {
    esac
    return 0
 }
+
+## Unmount a single path, but only if it is a mountpoint. No-op when the path is
+## not mounted, because callers pass paths that may or may not be mounted (bind
+## mounts that were never set up, an already-unmounted CHROOT_FOLDER). On a
+## mounted path that will not detach, 'umount' exits non-zero and the caller's
+## errexit fails the build. 'return', never 'exit'.
+##
+## Uses ambient 'SUDO_TO_ROOT' (word-split on purpose, e.g. 'sudo --non-interactive').
+unmount_if_mounted() {
+   ${SUDO_TO_ROOT} mountpoint --quiet -- "$1" || return 0
+   ${SUDO_TO_ROOT} umount --verbose -- "$1"
+}
