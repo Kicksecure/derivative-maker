@@ -103,6 +103,12 @@ export UWT_DEV_PASSTHROUGH
 ## dpkg-parsechangelog (from package dpkg-dev) is not available before dependencies are installed.
 if command -v dpkg-parsechangelog &>/dev/null ; then
    SOURCE_DATE_EPOCH="$(dpkg-parsechangelog --show-field=Timestamp)"
+   ## Validate the build-wide value once, at the point it is resolved, so every
+   ## consumer (debhelper, mmdebstrap, the reproducible image steps) gets a sane
+   ## epoch. Empty is tolerated (some early stages have no changelog yet).
+   if [ -n "${SOURCE_DATE_EPOCH}" ] && ! source_date_epoch_valid "${SOURCE_DATE_EPOCH}" ; then
+      error "SOURCE_DATE_EPOCH '${SOURCE_DATE_EPOCH}' (dpkg-parsechangelog Timestamp) is not a valid non-negative 64-bit integer."
+   fi
 else
    true "INFO: SOURCE_DATE_EPOCH not available yet because dpkg-parsechangelog has not been installed yet."
 fi

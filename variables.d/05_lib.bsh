@@ -76,3 +76,17 @@ dist_build_source_config_dir() {
       true "${cyan}INFO: Skipping $1 because it does not exist.${reset}"
    fi
 }
+
+## True iff $1 is a valid SOURCE_DATE_EPOCH: a whole number (is_whole_number from
+## helper-scripts strings.bsh -- no leading zeros, sign or space) that also fits a
+## signed 64-bit integer. The format check alone is not enough: arithmetic
+## downstream ($(( )) in mmdebstrap, debhelper and help-steps/dm-raw-to-iso)
+## SILENTLY WRAPS past 2^63 (2^64 -> 0 -> a 1970 build), and is_whole_number
+## guarantees no leading zeros so $(( )) round-trips unless it overflowed. 'return',
+## never 'exit'; the caller decides how to fail.
+source_date_epoch_valid() {
+   local value
+   value="$1"
+   is_whole_number "${value}" || return 1
+   [ "$(( 10#${value} ))" -ge 0 ] && [ "$(( 10#${value} ))" = "${value}" ]
+}

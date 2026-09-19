@@ -104,8 +104,8 @@ if [ "${dist_build_apt_freshness:-current}" = "frozen" ]; then
    fi
    dist_frozen_snapshot_pin="$(< "${dist_frozen_snapshot_pin_file}")"
    dist_frozen_snapshot_pin="${dist_frozen_snapshot_pin//[[:space:]]/}"
-   if ! [[ "${dist_frozen_snapshot_pin}" =~ ^(0|[1-9][0-9]*)$ ]]; then
-      error "Malformed snapshot pin '${dist_frozen_snapshot_pin}' in ${dist_frozen_snapshot_pin_file}"
+   if ! source_date_epoch_valid "${dist_frozen_snapshot_pin}"; then
+      error "Malformed or out-of-range snapshot pin '${dist_frozen_snapshot_pin}' in ${dist_frozen_snapshot_pin_file}"
    fi
    SOURCE_DATE_EPOCH="${dist_frozen_snapshot_pin}"
    export SOURCE_DATE_EPOCH
