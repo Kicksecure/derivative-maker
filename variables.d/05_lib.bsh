@@ -90,3 +90,19 @@ source_date_epoch_valid() {
    is_whole_number "${value}" || return 1
    [ "$(( 10#${value} ))" -ge 0 ] && [ "$(( 10#${value} ))" = "${value}" ]
 }
+
+## True iff $1 is non-empty and every character is in the bracket char-class $2
+## (e.g. 'A-Za-z0-9.-'). One place for the branding/identity charset checks
+## (dist_build_hostname, dist_build_type_short[_pretty], dist_build_version), which
+## are spliced unquoted into the ISO GRUB menu / live kernel cmdline / splash --
+## so a space or newline must be refused. $2 is a hardcoded class from the caller,
+## never external input. 'return', never 'exit'.
+value_charset_ok() {
+   ## shellcheck disable=SC2254 # $2 is intentionally the case-glob char-class
+   case "$1" in
+      ''|*[!$2]*)
+         return 1
+         ;;
+   esac
+   return 0
+}
