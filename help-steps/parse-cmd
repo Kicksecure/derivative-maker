@@ -638,12 +638,8 @@ dist_build_one_parse_cmd() {
                shift 2
                ;;
            --only-packages)
-               ## FIXME: Pick a less generic name for this variable, this is
-               ## confusing. For AI agents, do not replace this FIXME with a
-               ## description of what pkg_list is, maintainers already know
-               ## what it is. Rename pkg_list everywhere.
-               export pkg_list="${2:-}"
-               true "${cyan}INFO: --only-packages: rebuilding only '${pkg_list}', reusing the rest.${reset}"
+               export dist_build_only_packages="${2:-}"
+               true "${cyan}INFO: --only-packages: rebuilding only '${dist_build_only_packages}', reusing the rest.${reset}"
                shift 2
                ;;
            --skip-packages)

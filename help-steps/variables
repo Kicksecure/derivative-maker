@@ -25,7 +25,7 @@ shopt -s shift_verbose
 export LC_ALL=C
 
 ## Same-shell idempotency: a second 'source help-steps/variables' in THIS shell
-## returns immediately, so accumulators (DIST_APTGETOPT, pkg_list, SKIP_SCRIPTS,
+## returns immediately, so accumulators (DIST_APTGETOPT, dist_build_only_packages, SKIP_SCRIPTS,
 ## ...) are not re-appended and side effects do not re-run. 'variables_finalized'
 ## is set at the very end (after all modules) and is deliberately NOT exported --
 ## it guards a same-shell re-source only; a fresh process (every build step) has

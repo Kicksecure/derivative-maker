@@ -399,7 +399,7 @@ create_derivative_distribution_debian_packages() {
    local derivative_name_item item base_name control_file
    local -a package_build_list=()
    for derivative_name_item in ${derivative_name_list} ; do
-      for item in ${pkg_list} ; do
+      for item in ${dist_build_only_packages} ; do
          item="${source_code_folder_dist}/packages/${derivative_name_item}/${item}"
          if [ ! -d "${item}" ]; then
             true "INFO: Not a folder: ${item}"
