@@ -211,9 +211,9 @@ default_if_empty copy_vms_into_raw_file_two "${dist_binary_build_folder}/Whonix-
 
 ## Sanity test. dm-prepare-release uses 'rm --force --recursive'.
 ## XXX: hardcoded derivative-binary
-## KNOWN LIMITATION (out of scope): substring match, not path-containment -- a
-## dist_build_version with '../' (a builder-set override) passes this yet resolves
-## outside the build folder. Self-inflicted threat model; not hardened here.
+## Substring match, not full path-containment. The dist_build_version '../'
+## traversal this once warned about is closed above: dist_build_version is
+## charset-validated ([A-Za-z0-9._-], no '/'), so it cannot inject a traversal.
 if ! printf "%s\n" "${dist_binary_build_folder}" | grep --fixed-strings -- "derivative-binary" >/dev/null 2>&1; then
    printf "%s\n" "$0: FAIL: wrong folder: dist_binary_build_folder: ${dist_binary_build_folder}"
    exit 1
